@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import requests
 from urllib.parse import unquote
@@ -159,16 +160,30 @@ if st.button("🔍 맛집 찾기"):
         "size": 1
     }
 
-    address_response = requests.get(
-        address_url,
-        headers=kakao_headers,
-        params=address_params
-    )
+    try:
+
+        address_response = requests.get(
+            address_url,
+            headers=kakao_headers,
+            params=address_params,
+            timeout=15
+        )
+
+    except requests.exceptions.RequestException:
+
+        st.error(
+            "❌ 위치 검색 서버에 연결하지 못했습니다."
+        )
+
+        st.stop()
+
 
     if address_response.status_code != 200:
 
         st.error("❌ 입력한 위치를 찾지 못했습니다.")
+
         st.stop()
+
 
     address_data = address_response.json()
 
@@ -180,7 +195,9 @@ if st.button("🔍 맛집 찾기"):
     if not address_documents:
 
         st.error("❌ 검색 결과가 없습니다.")
+
         st.stop()
+
 
     center = address_documents[0]
 
@@ -199,10 +216,12 @@ if st.button("🔍 맛집 찾기"):
     st.subheader("🏆 모범음식점 데이터 분석 중...")
 
 
+    # HTTPS 사용
     public_url = (
-        "http://apis.data.go.kr/"
+        "https://apis.data.go.kr/"
         "1741000/excellent_restaurant_info/info"
     )
+
 
     public_params = {
         "serviceKey": PUBLIC_DATA_API_KEY,
@@ -211,59 +230,101 @@ if st.button("🔍 맛집 찾기"):
         "returnType": "JSON"
     }
 
-    public_response = requests.get(
-        public_url,
-        params=public_params,
-        timeout=10
-    )
-
 
     excellent_names = set()
 
+    public_data_success = False
 
-    if public_response.status_code == 200:
 
-        try:
+    try:
 
-            public_data = public_response.json()
+        public_response = requests.get(
+            public_url,
+            params=public_params,
+            timeout=30
+        )
 
-            # 여러 가지 응답 구조에 대응
-            body = public_data.get(
-                "body",
-                {}
-            )
 
-            items = body.get(
-                "items",
-                []
-            )
+        if public_response.status_code == 200:
 
-            if isinstance(items, dict):
-                items = items.get(
-                    "item",
+            try:
+
+                public_data = public_response.json()
+
+                body = public_data.get(
+                    "body",
+                    {}
+                )
+
+                items = body.get(
+                    "items",
                     []
                 )
 
-            if isinstance(items, dict):
-                items = [items]
+                if isinstance(items, dict):
 
-            for item in items:
-
-                name = (
-                    item.get("restaurantName")
-                    or item.get("RESTAURANT_NM")
-                    or item.get("업소명")
-                    or item.get("업소명칭")
-                    or ""
-                )
-
-                if name:
-                    excellent_names.add(
-                        clean_name(name)
+                    items = items.get(
+                        "item",
+                        []
                     )
 
-        except Exception:
-            excellent_names = set()
+                if isinstance(items, dict):
+
+                    items = [items]
+
+
+                for item in items:
+
+                    name = (
+                        item.get("restaurantName")
+                        or item.get("RESTAURANT_NM")
+                        or item.get("업소명")
+                        or item.get("업소명칭")
+                        or ""
+                    )
+
+
+                    if name:
+
+                        excellent_names.add(
+                            clean_name(name)
+                        )
+
+
+                public_data_success = True
+
+
+            except Exception:
+
+                public_data_success = False
+
+
+    except requests.exceptions.ConnectTimeout:
+
+        public_data_success = False
+
+
+    except requests.exceptions.RequestException:
+
+        public_data_success = False
+
+
+    # ======================================
+    # 공공데이터 결과 표시
+    # ======================================
+
+    if public_data_success:
+
+        st.success(
+            f"🏆 모범음식점 데이터 {len(excellent_names):,}건 분석 완료"
+        )
+
+    else:
+
+        st.warning(
+            "⚠️ 현재 공공데이터 서버에 연결하지 못했습니다. "
+            "거리 기반 추천을 계속 진행합니다."
+        )
 
 
     # ======================================
@@ -278,6 +339,7 @@ if st.button("🔍 맛집 찾기"):
         "search/keyword.json"
     )
 
+
     restaurant_params = {
         "query": query,
         "x": center_lon,
@@ -287,11 +349,23 @@ if st.button("🔍 맛집 찾기"):
         "sort": "distance"
     }
 
-    restaurant_response = requests.get(
-        restaurant_url,
-        headers=kakao_headers,
-        params=restaurant_params
-    )
+
+    try:
+
+        restaurant_response = requests.get(
+            restaurant_url,
+            headers=kakao_headers,
+            params=restaurant_params,
+            timeout=15
+        )
+
+    except requests.exceptions.RequestException:
+
+        st.error(
+            "❌ 음식점 검색 서버에 연결하지 못했습니다."
+        )
+
+        st.stop()
 
 
     if restaurant_response.status_code != 200:
@@ -368,20 +442,27 @@ if st.button("🔍 맛집 찾기"):
         is_excellent = False
 
 
-        for excellent_name in excellent_names:
+        if public_data_success:
 
-            if (
-                restaurant_name in excellent_name
-                or excellent_name in restaurant_name
-            ):
-                is_excellent = True
-                break
+            for excellent_name in excellent_names:
+
+                if (
+                    restaurant_name in excellent_name
+                    or excellent_name in restaurant_name
+                ):
+
+                    is_excellent = True
+
+                    break
 
 
         # 모범음식점 점수
         if is_excellent:
+
             excellent_score = 50
+
         else:
+
             excellent_score = 0
 
 
@@ -477,14 +558,22 @@ if st.button("🔍 맛집 찾기"):
 
         restaurant = result["restaurant"]
 
-        medal = ""
 
         if i == 1:
+
             medal = "🥇"
+
         elif i == 2:
+
             medal = "🥈"
+
         elif i == 3:
+
             medal = "🥉"
+
+        else:
+
+            medal = ""
 
 
         st.markdown(
@@ -528,3 +617,4 @@ if st.button("🔍 맛집 찾기"):
 
 
         st.divider()
+```
