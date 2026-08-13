@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import requests
 from urllib.parse import unquote
@@ -617,4 +616,3 @@ if st.button("🔍 맛집 찾기"):
 
 
         st.divider()
-```
