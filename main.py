@@ -432,7 +432,7 @@ if st.button("🔍 맛집 찾기"):
         rating = round(random.uniform(4.0, 5.0), 1)
 
         # 평점 점수
-        rating_score = int(rating * 10)
+        rating_score = int(rating * 20)
 
         # 최종 점수
         total_score = (
