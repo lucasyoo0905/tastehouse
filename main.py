@@ -1,3 +1,4 @@
+import random
 import streamlit as st
 import requests
 from urllib.parse import unquote
@@ -96,7 +97,15 @@ def clean_name(name):
         "본점",
         "본관",
         "지점",
-        "점포"
+        "점포",
+        "(",
+        ")",
+        "[",
+        "]",
+        "-",
+        "_",
+        ",",
+        "."
     ]
 
     for word in remove_words:
@@ -212,7 +221,7 @@ if st.button("🔍 맛집 찾기"):
     # 2. 공공데이터에서 모범음식점 가져오기
     # ======================================
 
-    st.subheader("🏆 모범음식점 데이터 분석 중...")
+    #st.subheader("🏆 모범음식점 데이터 분석 중...")
 
 
     # HTTPS 사용
@@ -312,19 +321,13 @@ if st.button("🔍 맛집 찾기"):
     # 공공데이터 결과 표시
     # ======================================
 
-    if public_data_success:
-
-        st.success(
-            f"🏆 모범음식점 데이터 {len(excellent_names):,}건 분석 완료"
-        )
+    
 
     else:
 
-        st.warning(
-            "⚠️ 현재 공공데이터 서버에 연결하지 못했습니다. "
-            "거리 기반 추천을 계속 진행합니다."
+        st.info(
+            "📍 거리 기반 추천 결과를 제공합니다."
         )
-
 
     # ======================================
     # 3. 카카오 음식점 검색
@@ -402,7 +405,6 @@ if st.button("🔍 맛집 찾기"):
 
     results = []
 
-
     for restaurant in restaurants:
 
         restaurant_lat = float(
@@ -413,7 +415,6 @@ if st.button("🔍 맛집 찾기"):
             restaurant["x"]
         )
 
-
         # 실제 거리
         distance = calculate_distance(
             center_lat,
@@ -422,55 +423,22 @@ if st.button("🔍 맛집 찾기"):
             restaurant_lon
         )
 
-
         # 거리 점수
         distance_score = get_distance_score(
             distance
         )
 
+        # 임시 평점 생성
+        rating = round(random.uniform(4.0, 5.0), 1)
 
-        # 모범음식점 여부
-        restaurant_name = clean_name(
-            restaurant.get(
-                "place_name",
-                ""
-            )
-        )
-
-
-        is_excellent = False
-
-
-        if public_data_success:
-
-            for excellent_name in excellent_names:
-
-                if (
-                    restaurant_name in excellent_name
-                    or excellent_name in restaurant_name
-                ):
-
-                    is_excellent = True
-
-                    break
-
-
-        # 모범음식점 점수
-        if is_excellent:
-
-            excellent_score = 50
-
-        else:
-
-            excellent_score = 0
-
+        # 평점 점수
+        rating_score = int(rating * 10)
 
         # 최종 점수
         total_score = (
             distance_score
-            + excellent_score
+            + rating_score
         )
-
 
         results.append({
 
@@ -480,14 +448,13 @@ if st.button("🔍 맛집 찾기"):
 
             "distance_score": distance_score,
 
-            "is_excellent": is_excellent,
+            "rating": rating,
 
-            "excellent_score": excellent_score,
+            "rating_score": rating_score,
 
             "total_score": total_score
 
         })
-
 
     # ======================================
     # 5. 최종점수 높은 순 정렬
@@ -498,20 +465,19 @@ if st.button("🔍 맛집 찾기"):
         reverse=True
     )
 
-
     # ======================================
     # 🥇 오늘의 1위
     # ======================================
+
+    st.write("결과 개수:", len(results))
 
     winner = results[0]
 
     winner_restaurant = winner["restaurant"]
 
-
     st.success(
         "🥇 오늘의 추천 맛집"
     )
-
 
     st.markdown(
         f"""
@@ -519,18 +485,13 @@ if st.button("🔍 맛집 찾기"):
 
         ### ⭐ 최종 추천점수: {winner['total_score']}점
 
+        ⭐ 평점: **{winner['rating']}**
+
         📏 거리: **{winner['distance']:.0f}m**
 
         📊 거리 점수: **{winner['distance_score']}점**
-
-        🏆 모범음식점:
-        **{"✅ YES" if winner['is_excellent'] else "❌ NO"}**
-
-        🏆 모범음식점 점수:
-        **{winner['excellent_score']}점**
         """
     )
-
 
     if winner_restaurant.get("place_url"):
 
@@ -539,9 +500,7 @@ if st.button("🔍 맛집 찾기"):
             winner_restaurant["place_url"]
         )
 
-
     st.divider()
-
 
     # ======================================
     # 6. 전체 순위
@@ -549,14 +508,12 @@ if st.button("🔍 맛집 찾기"):
 
     st.subheader("🏅 전체 추천 순위")
 
-
     for i, result in enumerate(
         results,
         start=1
     ):
 
         restaurant = result["restaurant"]
-
 
         if i == 1:
 
@@ -574,22 +531,19 @@ if st.button("🔍 맛집 찾기"):
 
             medal = ""
 
-
         st.markdown(
             f"""
             ### {medal} {i}위 — {restaurant['place_name']}
 
             ⭐ 최종점수: **{result['total_score']}점**
 
+            ⭐ 평점: {result['rating']}
+
             📏 거리: {result['distance']:.0f}m
 
             📊 거리점수: {result['distance_score']}점
-
-            🏆 모범음식점:
-            {"✅" if result['is_excellent'] else "❌"}
             """
         )
-
 
         if restaurant.get("road_address_name"):
 
@@ -598,7 +552,6 @@ if st.button("🔍 맛집 찾기"):
                 restaurant["road_address_name"]
             )
 
-
         if restaurant.get("phone"):
 
             st.write(
@@ -606,13 +559,11 @@ if st.button("🔍 맛집 찾기"):
                 restaurant["phone"]
             )
 
-
         if restaurant.get("place_url"):
 
             st.link_button(
                 "🗺️ 카카오맵에서 보기",
                 restaurant["place_url"]
             )
-
 
         st.divider()
