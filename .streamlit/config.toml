@@ -1,0 +1,26 @@
+[theme]
+base = "light"
+primaryColor = "#91A6DD"
+backgroundColor = "#F8F8FD"
+secondaryBackgroundColor = "#F5F7FC"
+textColor = "#344158"
+borderColor = "#D9E1EE"
+showWidgetBorder = true
+baseRadius = "large"
+buttonRadius = "medium"
+
+[theme.light]
+primaryColor = "#91A6DD"
+backgroundColor = "#F8F8FD"
+secondaryBackgroundColor = "#F5F7FC"
+textColor = "#344158"
+borderColor = "#D9E1EE"
+showWidgetBorder = true
+
+[theme.dark]
+primaryColor = "#91A6DD"
+backgroundColor = "#F8F8FD"
+secondaryBackgroundColor = "#F5F7FC"
+textColor = "#344158"
+borderColor = "#D9E1EE"
+showWidgetBorder = true
