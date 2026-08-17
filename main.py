@@ -8232,15 +8232,18 @@ with st.container(
             accept_new_options=True,
         )
 
-    price_col, help_col = st.columns(
-        [2.35, 1]
-    )
+    # V79: 모바일에서 여러 팝오버가 겹쳐 열리는 문제 방지
+    # 가격대와 검색 예시를 하나의 팝오버 안 탭으로 통합한다.
+    # 따라서 화면에는 떠 있는 검색 메뉴가 최대 하나만 존재한다.
+    with st.popover(
+        f"💰 가격대 · {get_price_filter_summary()}  ·  💡 검색 도움",
+        use_container_width=True,
+    ):
+        price_tab, example_tab = st.tabs(
+            ["💰 가격대", "💡 검색 예시"]
+        )
 
-    with price_col:
-        with st.popover(
-            f"💰 가격대 · {get_price_filter_summary()}",
-            use_container_width=True,
-        ):
+        with price_tab:
             st.checkbox(
                 "전체",
                 key="price_select_all",
@@ -8254,11 +8257,7 @@ with st.container(
                     on_change=sync_price_select_all,
                 )
 
-    with help_col:
-        with st.popover(
-            "💡 검색 예시",
-            use_container_width=True,
-        ):
+        with example_tab:
             st.caption(
                 "피자 · 파스타 · 스테이크 · 햄버거\n\n"
                 "초밥 · 라멘 · 돈까스 · 우동\n\n"
