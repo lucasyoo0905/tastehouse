@@ -4462,6 +4462,11 @@ GOOGLE_GENRE_TYPES = {
         "western_restaurant",
         "european_restaurant",
         "steak_house",
+        "brunch_restaurant",
+        "salad_shop",
+        # 앱의 양식 프랜차이즈 사전에 피자 브랜드가 다수 포함되어 있으므로
+        # Google이 명확히 pizza_restaurant로 알려주는 곳도 양식으로 인정한다.
+        "pizza_restaurant",
     },
 
     "아시아 음식": {
@@ -4473,6 +4478,20 @@ GOOGLE_GENRE_TYPES = {
         "indonesian_restaurant",
         "malaysian_restaurant",
         "filipino_restaurant",
+        "taiwanese_restaurant",
+        "bangladeshi_restaurant",
+        "burmese_restaurant",
+        "cambodian_restaurant",
+        "pakistani_restaurant",
+        "sri_lankan_restaurant",
+        "tibetan_restaurant",
+        "hawaiian_restaurant",
+        # 기존 앱의 '아시아 음식' 프랜차이즈 사전에는 멕시칸/기타 외국식도
+        # 포함되어 있으므로 현재 앱 분류 체계를 그대로 존중한다.
+        "mexican_restaurant",
+        "taco_restaurant",
+        "burrito_restaurant",
+        "tex_mex_restaurant",
     },
 
     "치킨": {
@@ -4498,6 +4517,8 @@ GOOGLE_GENRE_TYPES = {
         "coffee_shop",
         "coffee_stand",
         "bakery",
+        "bagel_shop",
+        "acai_shop",
         "dessert_shop",
         "dessert_restaurant",
         "cake_shop",
@@ -4506,6 +4527,7 @@ GOOGLE_GENRE_TYPES = {
         "tea_house",
         "juice_shop",
         "pastry_shop",
+        "confectionery",
     },
 
     "주점·술집": {
@@ -4515,9 +4537,14 @@ GOOGLE_GENRE_TYPES = {
         "wine_bar",
         "sports_bar",
         "beer_garden",
+        "brewery",
         "brewpub",
         "irish_pub",
         "lounge_bar",
+        "gastropub",
+        "bar_and_grill",
+        # 이자카야는 '일식'이면서 동시에 사용자가 기대하는 '술집'이기도 하다.
+        "japanese_izakaya_restaurant",
     },
 }
 
@@ -4530,7 +4557,6 @@ AMBIGUOUS_FOOD_TYPES = {
     "snack_bar",
     "hot_pot_restaurant",
     "barbecue_restaurant",
-    "pizza_restaurant",
     "bistro",
     "bar_and_grill",
     "gastropub",
@@ -4682,48 +4708,117 @@ def get_explicit_multi_genre_overlaps(place):
     return detected
 
 
+# ======================================
+# V82: 기본 장르 검색 누락 보완
+# ======================================
+# Google Places 타입만으로는 한국에서 실제 사용자가 기대하는 음식 장르와
+# 1:1로 맞지 않는 경우가 있다.
+# 예: 떡볶이집 → korean_restaurant, 치킨집 → restaurant,
+#     이자카야 → japanese_izakaya_restaurant 등.
+#
+# 따라서 기본 장르도 Text Search를 한 번 보조로 사용하고,
+# Google이 해당 장르 검색어로 직접 찾아준 '실제 식음료 장소'는
+# 타입 분류가 어긋나더라도 해당 장르 후보로 인정한다.
+#
+# 분식처럼 누락이 특히 큰 장르는 대표 하위 메뉴 검색어를 추가한다.
+GENRE_TEXT_SEARCH_QUERIES = {
+    "한식": ["한식"],
+    "중식": ["중식", "중국집"],
+    "일식": ["일식", "초밥"],
+    "양식": ["양식", "피자"],
+    "아시아 음식": ["아시아 음식", "쌀국수"],
+    "치킨": ["치킨", "닭강정"],
+    "분식": ["분식", "떡볶이", "김밥"],
+    "패스트푸드": ["패스트푸드", "햄버거"],
+    "카페·디저트": ["카페", "디저트"],
+    "주점·술집": ["술집", "이자카야"],
+}
+
+
+# 상호명만으로도 오탐 위험이 비교적 낮은 강한 장르 키워드.
+# '라면', '우동', '집', '카페'처럼 너무 일반적인 단어는 넣지 않는다.
+GENRE_STRONG_NAME_KEYWORDS = {
+    "중식": ("중화요리", "중국집"),
+    "일식": ("스시", "초밥", "돈카츠", "돈까스", "라멘"),
+    "양식": ("파스타", "피자"),
+    "치킨": ("치킨", "통닭", "닭강정"),
+    "분식": ("떡볶이", "분식", "김밥", "라볶이", "즉석떡볶이"),
+    "패스트푸드": ("버거", "햄버거"),
+    "카페·디저트": ("베이커리", "디저트", "도넛", "빙수"),
+    "주점·술집": ("이자카야", "와인바", "호프"),
+}
+
+
+def matches_strong_genre_name(place, genre):
+    normalized_name = normalize_brand_name(
+        get_place_name(place)
+    )
+
+    if not normalized_name:
+        return False
+
+    keywords = GENRE_STRONG_NAME_KEYWORDS.get(
+        genre,
+        ()
+    )
+
+    return any(
+        normalize_brand_name(keyword) in normalized_name
+        for keyword in keywords
+    )
+
+
 def matches_selected_genre(place, selected_genre):
     """
-    V48 장르 판별 원칙
+    V82 장르 판별 원칙
 
-    1) '전체'는 장르 판별 없이 통과
-    2) 명시적 복합 프랜차이즈는 등록된 여러 장르를 모두 허용
-    3) 그 외에는 Google primaryType / types의 확정 장르를 우선
-    4) Google 확정 장르가 없을 때 일반 프랜차이즈 사전으로 보완
-    5) 리뷰/메뉴 텍스트로 장르를 추정하지 않음
+    1) '전체'는 통과
+    2) 명시적 복합 프랜차이즈는 등록된 여러 장르를 허용
+    3) 엄격하게 매칭된 프랜차이즈 사전 / 강한 상호명 키워드를 먼저 인정
+       → Google이 korean_restaurant 같은 넓은 타입을 붙여도 치킨/분식 등이 탈락하지 않음
+    4) 해당 기본 장르의 Text Search가 직접 찾은 실제 식음료 장소를 보완 인정
+    5) 그 외에는 Google primaryType/types의 명확한 장르 판정을 사용
     """
     if selected_genre == "전체":
         return True
 
-    # --------------------------------------
-    # 1. 명시적 복합 브랜드 예외
-    # 예: 피자나라치킨공주 → 양식 + 치킨
-    # --------------------------------------
+    # 명시적 복합 브랜드
     overlap_genres = get_explicit_multi_genre_overlaps(
         place
     )
-
     if selected_genre in overlap_genres:
         return True
 
-    # --------------------------------------
-    # 2. 일반 장소는 Google의 확정 타입 우선
-    # --------------------------------------
-    google_genres = get_google_detected_genres(
-        place
-    )
-
-    if google_genres:
-        return selected_genre in google_genres
-
-    # --------------------------------------
-    # 3. Google이 확정하지 못했을 때 일반 프랜차이즈 사전
-    # --------------------------------------
+    # 엄격한 프랜차이즈 이름 매칭은 Google의 넓은 타입보다
+    # 사용자가 기대하는 앱 장르에 더 직접적인 근거가 된다.
     franchise_genres = get_franchise_genres(
         place
     )
+    if selected_genre in franchise_genres:
+        return True
 
-    return selected_genre in franchise_genres
+    # 상호명 자체가 장르를 강하게 말해주는 경우
+    if matches_strong_genre_name(
+        place,
+        selected_genre
+    ):
+        return True
+
+    # 기본 장르 Text Search 보완 결과.
+    # 아래 검색 단계에서 is_food_service_place() 검증을 거친 결과만 표시한다.
+    if (
+        place.get("_genre_search_source") == "text_search"
+        and place.get("_genre_search_category") == selected_genre
+    ):
+        return True
+
+    google_genres = get_google_detected_genres(
+        place
+    )
+    if google_genres:
+        return selected_genre in google_genres
+
+    return False
 
 
 
@@ -4773,6 +4868,7 @@ FOOD_SERVICE_PLACE_TYPES = {
     "coffee_shop",
     "coffee_stand",
     "bakery",
+    "bagel_shop",
     "bar",
     "pub",
     "wine_bar",
@@ -8016,8 +8112,16 @@ st.markdown(
         color: #77738E !important;
     }
 
-    /* V78: 이어지는 색 흐름은 유지하되 칸과 칸 사이의 연결부는 끊어서 더 또렷하게 */
+    /* V80: PC 4열 / 모바일 2x2 모두 하나의 큰 파스텔 그라데이션을 조각내서 공유 */
     .meta-grid {
+        --meta-flow: linear-gradient(
+            135deg,
+            #DCCFF3 0%,
+            #D7D6F4 24%,
+            #CFDFF3 47%,
+            #CBE7EB 72%,
+            #CDE8D8 100%
+        );
         background: transparent !important;
         padding: 0 !important;
         border: none !important;
@@ -8026,33 +8130,61 @@ st.markdown(
     }
 
     .meta-item {
-        border: 1px solid rgba(255,255,255,0.54) !important;
+        /* 같은 거대한 배경 이미지를 각 카드가 서로 다른 위치에서 잘라 사용 */
+        background-image: var(--meta-flow) !important;
+        background-repeat: no-repeat !important;
+        background-size: 400% 100% !important;
+        border: 1px solid rgba(255,255,255,0.56) !important;
         box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.54),
+            inset 0 1px 0 rgba(255,255,255,0.56),
             0 4px 11px rgba(82,78,112,0.05) !important;
         backdrop-filter: blur(5px) saturate(112%);
         -webkit-backdrop-filter: blur(5px) saturate(112%);
         transition: filter 0.18s ease, transform 0.18s ease;
     }
 
+    /* 데스크톱: 한 줄에 놓인 4칸이 왼쪽→오른쪽으로 정확히 이어짐 */
     .meta-grid .meta-item:nth-child(1) {
-        background: linear-gradient(135deg, rgba(220,207,243,0.96) 0%, rgba(214,205,241,0.94) 100%) !important;
+        background-position: 0% 50% !important;
     }
 
     .meta-grid .meta-item:nth-child(2) {
-        background: linear-gradient(135deg, rgba(216,216,244,0.96) 0%, rgba(208,219,243,0.94) 100%) !important;
+        background-position: 33.333% 50% !important;
     }
 
     .meta-grid .meta-item:nth-child(3) {
-        background: linear-gradient(135deg, rgba(207,223,243,0.96) 0%, rgba(203,231,235,0.94) 100%) !important;
+        background-position: 66.667% 50% !important;
     }
 
     .meta-grid .meta-item:nth-child(4) {
-        background: linear-gradient(135deg, rgba(203,231,235,0.96) 0%, rgba(205,232,216,0.94) 100%) !important;
+        background-position: 100% 50% !important;
+    }
+
+    /* 모바일: 2x2 전체를 하나의 큰 색 면으로 보고 네 카드가 네 사분면을 공유 */
+    @media (max-width: 700px) {
+        .meta-item {
+            background-size: 200% 200% !important;
+        }
+
+        .meta-grid .meta-item:nth-child(1) {
+            background-position: 0% 0% !important;
+        }
+
+        .meta-grid .meta-item:nth-child(2) {
+            background-position: 100% 0% !important;
+        }
+
+        .meta-grid .meta-item:nth-child(3) {
+            background-position: 0% 100% !important;
+        }
+
+        .meta-grid .meta-item:nth-child(4) {
+            background-position: 100% 100% !important;
+        }
     }
 
     .meta-item:hover {
-        filter: brightness(1.02);
+        filter: brightness(1.025) saturate(1.02);
         transform: translateY(-1px);
     }
 
@@ -8499,7 +8631,10 @@ if search_button:
                 "american_restaurant",
                 "western_restaurant",
                 "european_restaurant",
-                "steak_house"
+                "steak_house",
+                "brunch_restaurant",
+                "salad_shop",
+                "pizza_restaurant"
             ],
 
             "아시아 음식": [
@@ -8510,7 +8645,19 @@ if search_button:
                 "indian_restaurant",
                 "indonesian_restaurant",
                 "malaysian_restaurant",
-                "filipino_restaurant"
+                "filipino_restaurant",
+                "taiwanese_restaurant",
+                "bangladeshi_restaurant",
+                "burmese_restaurant",
+                "cambodian_restaurant",
+                "pakistani_restaurant",
+                "sri_lankan_restaurant",
+                "tibetan_restaurant",
+                "hawaiian_restaurant",
+                "mexican_restaurant",
+                "taco_restaurant",
+                "burrito_restaurant",
+                "tex_mex_restaurant"
             ],
 
             "치킨": [
@@ -8520,7 +8667,7 @@ if search_button:
 
             # 분식 전용 Google 타입은 없으므로
             # snack_bar는 후보 탐색 힌트로만 사용한다.
-            # 최종 분식 판별은 프랜차이즈 사전에서만 확정한다.
+            # 최종 분식 판별은 프랜차이즈/상호명/Text Search 근거까지 함께 본다.
             "분식": [
                 "snack_bar"
             ],
@@ -8538,6 +8685,8 @@ if search_button:
                 "coffee_shop",
                 "coffee_stand",
                 "bakery",
+                "bagel_shop",
+                "acai_shop",
                 "dessert_shop",
                 "dessert_restaurant",
                 "cake_shop",
@@ -8545,7 +8694,8 @@ if search_button:
                 "ice_cream_shop",
                 "tea_house",
                 "juice_shop",
-                "pastry_shop"
+                "pastry_shop",
+                "confectionery"
             ],
 
             "주점·술집": [
@@ -8555,9 +8705,13 @@ if search_button:
                 "wine_bar",
                 "sports_bar",
                 "beer_garden",
+                "brewery",
                 "brewpub",
                 "irish_pub",
-                "lounge_bar"
+                "lounge_bar",
+                "gastropub",
+                "bar_and_grill",
+                "japanese_izakaya_restaurant"
             ]
         }
 
@@ -8589,6 +8743,9 @@ if search_button:
         # → 중복 제거 전 반경당 최대 80개
         SEARCH_TARGET_COUNT = 10
         MAX_GENRE_CANDIDATES_PER_RADIUS = 40
+        # V82: 기본 장르도 Text Search 보완을 합치므로 필터링 전에 후보가
+        # 잘리지 않도록 넉넉한 풀을 유지한다.
+        MAX_RESCUED_GENRE_CANDIDATES_PER_RADIUS = 100
         MAX_CUSTOM_CANDIDATES_PER_RADIUS = 80
         search_radii = [1500.0, 2500.0, 3000.0]
 
@@ -8643,14 +8800,14 @@ if search_button:
                 )
             except requests.RequestException:
                 st.warning(
-                    "직접 음식명 Text Search 요청에 네트워크 오류가 있어 "
+                    "Google Text Search 요청에 네트워크 오류가 있어 "
                     "Nearby 검색 결과로 보완합니다."
                 )
                 return []
 
             if response.status_code != 200:
                 st.warning(
-                    "직접 음식명 Text Search 일부 요청에 실패해 "
+                    "Google Text Search 일부 요청에 실패해 "
                     "Nearby 검색 결과로 보완합니다. "
                     f"(응답 코드 {response.status_code})"
                 )
@@ -9173,8 +9330,58 @@ if search_button:
                                 place_id
                             ] = place
 
+                # ----------------------------------
+                # B-2. V82 기본 장르 Text Search 보완
+                # ----------------------------------
+                # Nearby 타입 분류와 실제 사용자 장르 기대가 어긋나는 장소를
+                # 직접 장르 검색과 같은 방식으로 한 번 더 확보한다.
+                genre_queries = GENRE_TEXT_SEARCH_QUERIES.get(
+                    food_category,
+                    []
+                )
+
+                for genre_query in genre_queries:
+                    text_places = fetch_text_search_restaurants(
+                        genre_query,
+                        search_radius
+                    )
+
+                    for place in text_places:
+                        place_id = (
+                            place.get("id")
+                            or place.get("name")
+                        )
+
+                        if not place_id:
+                            continue
+
+                        # Text Search 결과라 해도 실제 먹고 마시는 장소만 인정한다.
+                        if not is_food_service_place(place):
+                            continue
+
+                        place["_genre_search_source"] = "text_search"
+                        place["_genre_search_category"] = food_category
+                        place["_genre_search_query"] = genre_query
+
+                        # Nearby에서 먼저 발견된 동일 장소에도 Text Search 근거를 합친다.
+                        if place_id in places_by_id:
+                            places_by_id[place_id][
+                                "_genre_search_source"
+                            ] = "text_search"
+                            places_by_id[place_id][
+                                "_genre_search_category"
+                            ] = food_category
+                            places_by_id[place_id][
+                                "_genre_search_query"
+                            ] = genre_query
+                            continue
+
+                        places_by_id[place_id] = place
+
                 candidate_limit = (
-                    MAX_GENRE_CANDIDATES_PER_RADIUS
+                    MAX_RESCUED_GENRE_CANDIDATES_PER_RADIUS
+                    if genre_queries
+                    else MAX_GENRE_CANDIDATES_PER_RADIUS
                 )
 
             new_places = list(
