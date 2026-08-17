@@ -220,7 +220,16 @@ REVIEW_RULES = {
             "챙겨주": 2,
             "센스 있": 2,
 
-            "구워주": 1
+            "구워주": 1,
+            "접객": 2,
+            "프로페셔널": 3,
+            "서비스도 훌륭": 4,
+            "서비스가 훌륭": 4,
+            "설명을 잘 해주": 3,
+            "설명도 잘 해주": 3,
+            "손질해주": 2,
+            "손질 해주": 2,
+            "자리도 잡아주": 2
         },
 
         "negative": {
@@ -275,7 +284,9 @@ REVIEW_RULES = {
             "위생적": 3,
 
             "정리가 잘": 2,
-            "정돈": 2
+            "정돈": 2,
+            "주방이 깨끗": 4,
+            "주방 깨끗": 4
         },
 
         "negative": {
@@ -287,6 +298,7 @@ REVIEW_RULES = {
             "지저분": 4,
 
             "청결하지 않": 4,
+            "깨끗하지 못": 5,
             "위생이 별로": 4,
             "위생 별로": 4,
 
@@ -313,7 +325,18 @@ REVIEW_RULES = {
 
             "저렴": 3,
             "돈이 아깝지 않": 4,
-            "값어치": 3
+            "값어치": 3,
+            "가성비 끝판왕": 5,
+            "킹갓성비": 5,
+            "가심비": 3,
+            "가격도 적당": 3,
+            "가격이 적당": 3,
+            "가격도 부담스럽지 않": 4,
+            "가격이 부담스럽지 않": 4,
+            "가격 대비 훌륭": 4,
+            "가격대비 훌륭": 4,
+            "가격 대비 푸짐": 4,
+            "가격대비 푸짐": 4
         },
 
         "negative": {
@@ -329,8 +352,16 @@ REVIEW_RULES = {
             "가격이 좀 센": 3,
             "가격이 센 편": 3,
             "가격이 높": 3,
+            "가격은 다소 높": 3,
+            "가격이 다소 높": 3,
+            "가격은 상당히 높": 4,
+            "가격이 상당히 높": 4,
+            "가격 나가는 편": 3,
+            "가격이 나가는 편": 3,
+            "싼편은 아니": 3,
+            "싼 편은 아니": 3,
+            "싸진 않": 3,
 
-            "가격에 비해": 3,
             "가격 대비 별로": 5,
             "가격에 비해 맛이": 4,
 
@@ -611,6 +642,23 @@ def normalize_text(text):
 # 문장 나누기
 # ======================================
 
+
+def deduplicate_reviews(reviews):
+    """Google 응답에 동일 리뷰가 중복되어 들어온 경우 한 번만 사용/표시한다."""
+    unique = []
+    seen = set()
+    for review in reviews or []:
+        review_text = review.get("text", {}).get("text", "") if isinstance(review, dict) else ""
+        signature = re.sub(r"\s+", " ", str(review_text or "").strip().lower())
+        if not signature:
+            continue
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique.append(review)
+    return unique
+
+
 def split_sentences(text):
 
     text = normalize_text(text)
@@ -641,32 +689,54 @@ def split_sentences(text):
 # ======================================
 
 def is_food_related(text):
+    """
+    V84: 이름은 하위 코드 호환을 위해 유지하지만 의미는
+    '음식 단어가 있는가'가 아니라 '식당 평가에 유효한 리뷰인가'이다.
 
+    서비스/가격/청결/분위기/웨이팅만 이야기한 리뷰도
+    추천 점수에 필요한 유효한 식당 리뷰로 인정한다.
+    """
     text = normalize_text(text)
 
-    food_count = 0
-    hotel_count = 0
+    food_count = sum(
+        1 for word in FOOD_RELATED_WORDS
+        if word in text
+    )
 
+    restaurant_evaluation_words = [
+        # 서비스
+        "직원", "사장", "서비스", "응대", "접객", "친절", "불친절",
+        "서빙", "구워주", "구워 주", "설명", "안내", "무시", "프로페셔널",
+        "손질", "챙겨주", "자리 잡아",
+        # 가격/가성비
+        "가격", "가성비", "가심비", "저렴", "비싸", "합리적", "부담",
+        "만원", "원에", "가격대비", "가격 대비",
+        # 청결
+        "매장", "가게", "식당", "주방", "화장실", "테이블", "청결",
+        "깨끗", "깔끔", "위생", "정리", "정돈",
+        # 분위기
+        "분위기", "인테리어", "공간", "아늑", "쾌적", "조용", "시끄럽",
+        "북적", "어수선", "정신없", "데이트", "회식",
+        # 대기/전체 만족
+        "웨이팅", "대기", "기다", "줄서", "줄을 서", "만석", "회전율",
+        "추천", "비추천", "재방문", "다시 방문", "다신", "만족", "실망"
+    ]
 
-    for word in FOOD_RELATED_WORDS:
+    evaluation_count = sum(
+        1 for word in restaurant_evaluation_words
+        if word in text
+    )
 
-        if word in text:
-            food_count += 1
+    hotel_count = sum(
+        1 for word in HOTEL_RELATED_WORDS
+        if word in text
+    )
 
-
-    for word in HOTEL_RELATED_WORDS:
-
-        if word in text:
-            hotel_count += 1
-
-
-    if food_count > 0:
+    if food_count > 0 or evaluation_count > 0:
         return True
-
 
     if hotel_count > 0:
         return False
-
 
     return False
 
@@ -681,27 +751,46 @@ def is_food_related(text):
 # ======================================
 
 def is_other_place_sentence(sentence):
+    """현재 식당이 아니라 다른 식당/대안을 평가하는 절인지 확인."""
+    sentence = normalize_text(sentence)
 
-    patterns = [
+    literal_patterns = [
         "다른 지점",
         "다른 교촌",
-        "다른 가게",
-        "다른 식당",
-        "다른 맛집",
-        "다른 곳에 가",
-        "다른 곳을 가",
+        "다른 가게에서",
+        "다른 식당에서",
+        "다른 곳에서",
+        "다른곳에서",
+        "다른 맛집에서",
+        "다른 식당이 더",
         "다른 곳이 더",
-        "다른 식당이 더"
+        "다른곳이 더",
+        "다른 데가 더",
+        "다른데가 더",
     ]
 
-
-    for pattern in patterns:
-
-        if pattern in sentence:
+    if any(pattern in sentence for pattern in literal_patterns):
+        # "다른 곳 대비 이 집이 좋다"는 현재 식당 평가이므로 제외하지 않는다.
+        if "대비" not in sentence:
             return True
 
+    # "이 돈이면 차라리 국밥/다른 카페 가세요" 같은 대안 권유.
+    if re.search(r"차라리[^.!?]{0,45}(?:가세요|가는\s*게|가는게|가면|먹는\s*게|먹는게)", sentence):
+        return True
 
     return False
+
+
+def is_atmosphere_sentence(sentence):
+    """'정신없이 먹었다'를 분위기 부정으로 잡는 식의 오판을 막는다."""
+    context = [
+        "분위기", "매장", "가게", "식당", "내부", "인테리어", "공간",
+        "좌석", "테이블", "사람", "손님", "음악", "소리", "조명",
+        "시끄", "조용", "아늑", "쾌적", "북적", "어수선", "혼잡",
+        "개방감", "야장", "테라스", "데이트", "회식", "룸",
+        "시끌", "더워", "더웠", "덥", "추워", "한기", "냉방", "에어컨", "온도"
+    ]
+    return any(word in sentence for word in context)
 
 
 # ======================================
@@ -721,10 +810,15 @@ def is_cleanliness_sentence(sentence):
         "화장실",
         "테이블",
         "좌석",
+        "주방",
         "청소",
         "위생",
         "정리",
-        "정돈"
+        "정돈",
+        "깨끗",
+        "더럽",
+        "지저분",
+        "청결"
     ]
 
 
@@ -742,290 +836,142 @@ def is_cleanliness_sentence(sentence):
 # ======================================
 
 def analyze_waiting(sentences):
-    """
-    웨이팅 문맥 분석.
+    """V84 웨이팅 문맥 분석.
 
-    핵심 원칙:
-    1) "웨이팅 없음"이라는 단어만으로 긍정 처리하지 않는다.
-    2) "웨이팅 없이 바로 입장"처럼 실제 입장 경험이 좋았을 때만 긍정한다.
-    3) "웨이팅 없는 다른 곳", "굳이 기다릴 필요 없다"처럼
-       다른 가게와 비교하거나 기다릴 가치가 없다는 표현은 부정으로 본다.
-    4) 숫자 시간은 웨이팅 문맥에 가까이 붙어 있을 때만 대기시간으로 본다.
-       음식 조리/서빙 시간은 웨이팅 시간으로 오해하지 않는다.
+    - 한국어 어미의 '~줄'을 대기 줄(queue)로 오인하지 않는다.
+    - 실제 대기 없음/빠른 입장은 긍정.
+    - 대기 있음/필수/긴 줄/앞에 N팀은 부정.
+    - 조리시간은 대기시간과 분리한다.
+    - '10분이면 나오고 오래 기다리지 않아도 됨' 같은 문장은 긍정으로 본다.
     """
-
     positive_score = 0
     negative_score = 0
     positive_matches = []
     negative_matches = []
 
-    # 현재 식당의 웨이팅을 부정적으로 평가하는 강한 문맥.
-    negative_context_patterns = [
-        (
-            r"웨이팅\s*(?:이|은|도)?\s*없는?\s*다른\s*(?:곳|가게|데)",
-            "웨이팅 없는 다른 곳과 비교",
-        ),
-        (
-            r"대기\s*(?:가|는|도)?\s*없는?\s*다른\s*(?:곳|가게|데)",
-            "대기 없는 다른 곳과 비교",
-        ),
-        (
-            r"굳이[^.!?\n]{0,30}웨이팅[^.!?\n]{0,20}(?:안|하지)",
-            "굳이 웨이팅할 필요가 없다는 표현",
-        ),
-        (
-            r"굳이[^.!?\n]{0,30}대기[^.!?\n]{0,20}(?:안|하지)",
-            "굳이 대기할 필요가 없다는 표현",
-        ),
-        (
-            r"굳이[^.!?\n]{0,30}기다[^.!?\n]{0,20}(?:필요|이유|가치)",
-            "굳이 기다릴 이유가 없다는 표현",
-        ),
-        (
-            r"웨이팅[^.!?\n]{0,20}(?:할|해서|해가며)[^.!?\n]{0,20}(?:가치|정도는\s*아니|필요\s*없)",
-            "웨이팅할 가치가 낮다는 표현",
-        ),
-        (
-            r"대기[^.!?\n]{0,20}(?:할|해서|해가며)[^.!?\n]{0,20}(?:가치|정도는\s*아니|필요\s*없)",
-            "대기할 가치가 낮다는 표현",
-        ),
-        (
-            r"기다[^.!?\n]{0,20}(?:가치\s*없|필요가?\s*없|정도는\s*아니)",
-            "기다릴 가치가 낮다는 표현",
-        ),
-        (
-            r"줄\s*(?:서|서서|까지\s*서)[^.!?\n]{0,20}(?:먹을|갈)[^.!?\n]{0,15}(?:정도는\s*아니|가치\s*없)",
-            "줄 서서 먹을 가치가 낮다는 표현",
-        ),
-        (
-            r"웨이팅[^.!?\n]{0,25}더\s*좋은\s*(?:곳|가게|데)",
-            "웨이팅보다 더 좋은 다른 곳이 있다는 표현",
-        ),
-        (
-            r"대기[^.!?\n]{0,25}더\s*좋은\s*(?:곳|가게|데)",
-            "대기보다 더 좋은 다른 곳이 있다는 표현",
-        ),
+    def has_queue_word(s):
+        queue_patterns = [
+            r"줄\s*서", r"줄을\s*서", r"줄이\s*(?:길|많)", r"대기\s*줄",
+            r"웨이팅\s*줄", r"줄서는", r"줄\s*서는", r"앞에\s*\d+\s*팀",
+            r"\d+\s*팀\s*(?:대기|웨이팅|앞)"
+        ]
+        return any(re.search(p, s) for p in queue_patterns)
+
+    strong_negative_patterns = [
+        (r"웨이팅\s*(?:이|은|도)?\s*없는?\s*다른\s*(?:곳|가게|데)", "웨이팅 없는 다른 곳과 비교"),
+        (r"굳이[^.!?]{0,30}(?:웨이팅|대기|기다)[^.!?]{0,25}(?:필요|이유|가치|안\s*해도)", "기다릴 가치가 낮다는 표현"),
+        (r"(?:웨이팅|대기)[^.!?]{0,25}(?:가치\s*없|정도는\s*아니|할\s*필요\s*없)", "웨이팅할 가치가 낮다는 표현"),
+        (r"줄\s*서[^.!?]{0,25}(?:먹을|갈)[^.!?]{0,15}(?:정도는\s*아니|가치\s*없)", "줄 서서 먹을 가치가 낮다는 표현"),
     ]
 
-    # 실제로 기다리지 않고 들어갔다는 경험이 확인되는 경우만 긍정.
     positive_patterns = [
-        "바로 들어",
-        "바로 입장",
-        "웨이팅 없이 바로",
-        "대기 없이 바로",
-        "기다림 없이 바로",
-        "웨이팅 없이 들어",
-        "대기 없이 들어",
-        "기다림 없이 들어",
-        "웨이팅이 없었",
-        "웨이팅은 없었",
-        "대기가 없었",
-        "대기는 없었",
-        "기다리지 않고",
-        "기다리지 않아서",
-        "기다릴 필요 없이",
-        "줄이 금방 줄",
-        "순식간에 줄이 줄",
-        "회전율은 빠",
-        "회전율이 빠",
+        r"바로\s*(?:들어|입장)",
+        r"(?:웨이팅|대기|기다림)\s*(?:이|은|도)?\s*(?:없었|없어|없음|없는|없이)",
+        r"기다리지\s*(?:않|않아|않고)",
+        r"오래\s*기다리지\s*않",
+        r"기다릴\s*필요\s*없이",
+        r"회전율(?:은|이)?\s*(?:좋|빠)",
+        r"금방\s*(?:자리에|입장|들어)",
+        r"대기\s*없이\s*(?:편하게|바로)",
     ]
 
     negative_patterns = [
-        "웨이팅 길",
-        "대기 길",
-        "오래 기다",
-        "한참 기다",
-        "웨이팅 대박",
-        "극악의 웨이팅",
-        "웨이팅이 불가",
-        "웨이팅 해야",
-        "웨이팅해야",
-        "대기해야",
-        "대기 해야",
-        "기다렸",
-        "줄을 서서",
-        "줄을 서야",
-        "줄서서",
-        "줄서야",
-        "줄이 길",
-        "대기가 길",
-        "대기줄이 길",
-        "대기 줄이 길",
-        "웨이팅이 길",
-        "웨이팅을 오래",
-        "기다려야",
-        "기다려야 했",
-        "기다리다",
-        "기다리는 시간",
-        "웨이팅이 있었",
-        "웨이팅은 있었",
-        "대기가 있었",
-        "대기는 있었",
+        r"웨이팅\s*(?:이|은|도)?\s*(?:(?:좀|거의|항상|자주)\s*)?(?:길|많|있었|있음|있어|있는|있을|필수)",
+        r"대기\s*(?:가|는|도)?\s*(?:(?:좀|거의|항상|자주)\s*)?(?:길|많|있었|있음|있어|있는|있을|필수)",
+        r"웨이팅\s*(?:을|에)?\s*\d+(?:\.\d+)?\s*(?:분|시간)",
+        r"대기\s*(?:를|에)?\s*\d+(?:\.\d+)?\s*(?:분|시간)",
+        r"\d+(?:\.\d+)?\s*(?:분|시간)\s*(?:정도\s*)?(?:대기|웨이팅|기다)",
+        r"오래\s*기다", r"한참\s*기다", r"기다려야", r"기다렸",
+        r"줄\s*서", r"줄을\s*서", r"줄이\s*(?:길|많)",
+        r"앞에\s*\d+\s*팀", r"웨이팅\s*거의\s*필수",
     ]
 
-    # 숫자 주변에 이런 말이 있으면 조리/서빙 시간일 가능성이 높다.
-    preparation_time_terms = [
-        "요리",
-        "음식",
-        "메뉴",
-        "조리",
-        "주방",
-        "서빙",
-        "나오",
-        "나오는",
-        "나오기",
-        "간격",
-    ]
+    preparation_terms = ["요리", "음식", "메뉴", "조리", "주방", "서빙", "나오", "주문하고"]
 
-    short_wait_positive_terms = [
-        "도 안",
-        "안 걸",
-        "이내",
-        "미만",
-        "금방",
-        "잠깐",
-        "바로",
-    ]
+    for raw_sentence in sentences:
+        sentence = normalize_text(raw_sentence)
 
-    for sentence in sentences:
-        waiting_word = (
+        has_wait_word = (
             "웨이팅" in sentence
             or "대기" in sentence
             or "기다" in sentence
-            or "줄" in sentence
+            or has_queue_word(sentence)
+            or re.search(r"앞에\s*\d+\s*팀", sentence) is not None
         )
-
-        if not waiting_word:
+        if not has_wait_word:
             continue
 
-        # --------------------------------------
-        # 1. 강한 부정 문맥을 먼저 처리한다.
-        # --------------------------------------
+        # 가치 없음/다른 곳 비교는 가장 먼저 처리.
         strong_negative = False
-
-        matched_context_labels = []
-
-        for pattern, label in negative_context_patterns:
+        for pattern, label in strong_negative_patterns:
             if re.search(pattern, sentence):
-                matched_context_labels.append(label)
+                negative_score += 6
+                negative_matches.append(label)
+                strong_negative = True
+                break
 
-        if matched_context_labels:
-            # 같은 문장이 여러 규칙에 동시에 걸려도
-            # 문장 하나를 여러 번 감점하지 않는다.
-            negative_score += 5
-            negative_matches.append(
-                matched_context_labels[0]
-            )
-            strong_negative = True
-
-        # 강한 부정 문맥이 있는 문장에서는
-        # "웨이팅 없" 같은 일부 문자열 때문에 긍정이 섞이지 않게 한다.
+        # 긍정 대기 문맥.
+        positive_hit = False
         if not strong_negative:
             for pattern in positive_patterns:
-                if pattern in sentence:
-                    positive_score += 3
+                if re.search(pattern, sentence):
+                    positive_score += 4
                     positive_matches.append(pattern)
+                    positive_hit = True
+                    break
 
-        # --------------------------------------
-        # 2. 일반적인 부정 대기 표현
-        # --------------------------------------
-        for pattern in negative_patterns:
-            if pattern in sentence:
-                negative_score += 3
-                negative_matches.append(pattern)
+        # 일반 부정 대기 문맥. 짧고 빠른 입장이 명시된 같은 절에서는 억제.
+        if not positive_hit:
+            for pattern in negative_patterns:
+                if re.search(pattern, sentence):
+                    negative_score += 4
+                    negative_matches.append(pattern)
+                    break
 
-        # --------------------------------------
-        # 3. 시간 자동 인식
-        # --------------------------------------
-        # 숫자 바로 주변 문맥만 보고 웨이팅 시간인지 판단한다.
-        # 조리/서빙 문맥이 가까우면 대기시간에서 제외한다.
-        time_patterns = [
-            (r"(\d+(?:\.\d+)?)\s*시간", "hour"),
-            (r"(\d+)\s*분", "minute"),
-        ]
+        # 시간 숫자 분석: 조리 시간은 제외.
+        for match in re.finditer(r"(\d+(?:\.\d+)?)\s*(시간|분)", sentence):
+            a, b = match.span()
+            nearby = sentence[max(0, a - 28): min(len(sentence), b + 32)]
 
-        for time_pattern, unit in time_patterns:
-            for match in re.finditer(time_pattern, sentence):
-                span_start, span_end = match.span()
-                nearby = sentence[
-                    max(0, span_start - 24):
-                    min(len(sentence), span_end + 24)
-                ]
+            wait_nearby = (
+                "웨이팅" in nearby or "대기" in nearby or "기다" in nearby or has_queue_word(nearby)
+            )
+            if not wait_nearby:
+                continue
 
-                nearby_has_wait = any(
-                    token in nearby
-                    for token in ["웨이팅", "대기", "기다", "줄"]
-                )
+            explicitly_fast = bool(re.search(
+                r"(?:도\s*안|안\s*걸|이내|미만|금방|바로|기다리지\s*않|오래\s*기다리지\s*않)",
+                nearby,
+            ))
+            if explicitly_fast:
+                positive_score += 2
+                positive_matches.append(f"짧은 대기: {match.group(0)}")
+                continue
 
-                if not nearby_has_wait:
-                    continue
+            prep_nearby = any(term in nearby for term in preparation_terms)
+            explicit_wait = bool(re.search(r"(?:웨이팅|대기|기다|줄\s*서)", nearby))
+            if prep_nearby and not explicit_wait:
+                continue
 
-                nearby_has_preparation = any(
-                    token in nearby
-                    for token in preparation_time_terms
-                )
+            value = float(match.group(1))
+            unit = match.group(2)
+            minutes = value * 60 if unit == "시간" else value
 
-                # "주문하고 30분 기다렸다"처럼 실제 기다림 표현이
-                # 숫자 주변에 있으면 조리 단어가 있어도 웨이팅으로 본다.
-                explicit_wait_action = (
-                    "기다" in nearby
-                    or re.search(
-                        r"(?:웨이팅|대기|줄)\s*(?:약\s*)?\d",
-                        nearby
-                    )
-                    is not None
-                    or re.search(
-                        r"\d+(?:\.\d+)?\s*(?:분|시간)[^.!?\n]{0,10}(?:웨이팅|대기|기다|줄)",
-                        nearby
-                    )
-                    is not None
-                )
+            # 이미 일반 부정 패턴에서 같은 시간을 잡은 경우 과도한 중복 감점 방지.
+            if minutes >= 60:
+                add = 5
+            elif minutes >= 30:
+                add = 4
+            elif minutes >= 15:
+                add = 2
+            elif minutes >= 10:
+                add = 1
+            else:
+                add = 0
 
-                if nearby_has_preparation and not explicit_wait_action:
-                    continue
-
-                # "10분도 안 기다림", "5분 이내 입장" 같은 짧은 대기는
-                # 부정이 아니라 긍정 신호로 처리한다.
-                if any(
-                    term in nearby
-                    for term in short_wait_positive_terms
-                ):
-                    positive_score += 2
-                    positive_matches.append(
-                        f"짧은 대기: {match.group(0)}"
-                    )
-                    continue
-
-                if unit == "hour":
-                    hours = float(match.group(1))
-
-                    if hours >= 1:
-                        negative_score += 5
-                        negative_matches.append(
-                            f"{match.group(1)}시간 대기"
-                        )
-                    elif hours >= 0.5:
-                        negative_score += 3
-                        negative_matches.append(
-                            f"{match.group(1)}시간 대기"
-                        )
-
-                else:
-                    minutes = int(match.group(1))
-
-                    if minutes >= 60:
-                        negative_score += 5
-                    elif minutes >= 30:
-                        negative_score += 4
-                    elif minutes >= 15:
-                        negative_score += 2
-                    elif minutes >= 10:
-                        negative_score += 1
-
-                    if minutes >= 10:
-                        negative_matches.append(
-                            f"{minutes}분 대기"
-                        )
+            if add:
+                negative_score += add
+                negative_matches.append(f"{match.group(0)} 대기")
 
     return {
         "positive_score": positive_score,
@@ -1089,775 +1035,320 @@ def decide_result(
 # 리뷰 하나 분석
 # ======================================
 
-def analyze_review(
-    review_text,
-    review_rating=None
-):
+def analyze_review(review_text, review_rating=None):
+    """V84: 절 단위 + 문맥 우선 리뷰 분석."""
+    text = normalize_text(review_text)
+    sentences = split_sentences(text)
 
-    text = normalize_text(
-        review_text
-    )
+    # 쉼표/접속어로도 나눠 서로 다른 평가가 한 문장 때문에 섞이지 않게 한다.
+    clauses = []
+    for sentence in sentences:
+        parts = re.split(
+            r"\s*(?:,|;|하지만|그렇지만|그러나|그런데|근데|다만|반면|그럼에도\s*불구하고|에도\s*불구하고)\s*",
+            sentence,
+        )
+        clauses.extend([p.strip() for p in parts if p.strip()])
 
-    sentences = split_sentences(
-        text
-    )
-
-    food_related = is_food_related(
-        text
-    )
-
+    food_related = is_food_related(text)
     analysis = {}
 
-
-    # ======================================
-    # 자연스러운 부정 표현
-    # ======================================
-
     natural_negative_phrases = {
-
         "맛": [
-            "맛이 별로",
-            "맛도 별로",
-            "맛은 별로",
-            "음식이 별로",
-            "음식도 별로",
-            "맛이 왜",
-            "맛도 왜",
-            "평타도 못",
-            "평타도 못하",
-            "맛을 못",
-            "맛도 못",
-            "맛있게 못",
-            "제대로 못",
-            "맛이 아쉽",
-            "맛은 아쉽",
-            "맛이 부족",
-            "맛이 떨어",
-            "맛이 기대 이하",
-            "맛은 기대 이하",
-            "맛볼 가치가 없",
-            "먹을 가치가 없",
-            "먹을만하지 않",
-            "먹을 만하지 않",
-            "추천하기 어렵",
-            "추천하기 힘들"
+            "맛이 별로", "맛도 별로", "맛은 별로", "음식이 별로", "음식도 별로",
+            "맛이 아쉽", "맛은 아쉽", "맛이 부족", "맛이 떨어", "맛이 많이 떨어",
+            "맛이 기대 이하", "맛은 기대 이하", "먹을만하지 않", "먹을 만하지 않",
+            "기대보다 맛", "생각보단 아쉽", "생각보다 아쉽", "돼지 냄새", "고기 냄새",
+            "퍽퍽", "질겼", "질겨", "질김", "부드럽지 않", "맛이 있는가에 대해서는 의문", "맛이 있는가에 대해 의문", "설익", "구렸", "고기는 보통", "맛은 평범", "맛이 평범",
+            "쏘쏘", "다른건 좀 별로", "다른 건 좀 별로", "질이 좀 더 좋겠"
         ],
-
         "서비스": [
-            "서비스가 별로",
-            "서비스는 별로",
-            "응대가 별로",
-            "직원이 별로",
-            "직원도 별로",
-            "친절하지 않",
-            "불친절",
-            "무례",
-            "무시",
-            "응대가 아쉽",
-            "서비스가 아쉽",
-            "서비스가 부족",
-            "직원 태도가 별로",
-            "직원태도가 별로",
-            "직원 태도도 별로"
+            "서비스가 별로", "서비스는 별로", "응대가 별로", "직원이 별로",
+            "친절하지 않", "불친절", "무례", "무시", "쌩 무시", "서비스 개판",
+            "응대가 아쉽", "서비스가 아쉽", "서비스가 부족", "직원 태도가 별로", "태도가 상당히 불쾌", "태도가 불쾌",
+            "친절하게 느껴지지 않", "인종차별", "신경도 안씀", "신경도 안 씀",
+            "안내도 없", "인사나 간단한 안내도 없"
         ],
-
         "가격/가성비": [
-            "가격이 별로",
-            "가격은 별로",
-            "가격이 비싸",
-            "가격은 비싸",
-            "너무 비싸",
-            "비싼 편",
-            "가격 대비 별로",
-            "가성비가 별로",
-            "가성비는 별로",
-            "돈이 아깝",
-            "돈 아깝",
-            "가격이 아쉽"
+            "가격이 별로", "가격은 별로", "가격이 비싸", "가격은 비싸", "너무 비싸",
+            "비싼 편", "비싸고", "비쌌", "가격 대비 별로", "가격대비 별로",
+            "가성비가 별로", "가성비는 별로", "돈이 아깝", "돈 아깝", "가격이 아쉽",
+            "가격대비 아쉽", "가격 대비 아쉽", "다소 높은 편", "상당히 높은 편",
+            "가격 나가는 편", "좀 비싸", "비싸다", "비싸요", "싼편은 아니", "싼 편은 아니", "싸진 않"
         ],
-
         "청결": [
-            "더럽",
-            "지저분",
-            "청결하지 않",
-            "위생이 별로",
-            "위생이 좋지 않",
-            "깨끗하지 않",
-            "깔끔하지 않"
+            "더럽", "지저분", "청결하지 않", "위생이 별로", "위생이 좋지 않",
+            "깨끗하지 않", "깨끗하지 못", "깔끔하지 않", "세척되어 있지는 않"
         ],
-
         "분위기": [
-            "분위기가 별로",
-            "분위기는 별로",
-            "시끄럽",
-            "너무 시끄럽",
-            "정신없",
-            "분위기가 아쉽",
-            "분위기는 아쉽"
+            "분위기가 별로", "분위기는 별로", "시끄럽", "시끄러", "어수선",
+            "정신없", "분위기가 아쉽", "분위기는 아쉽", "대화가 힘들", "너무 더워",
+            "테이블 간격 좁", "공간이 좁", "시끌시끌", "덥고", "더웠"
         ],
-
         "전체 만족": [
-            "별로였다",
-            "별로였",
-            "별로예요",
-            "별로에요",
-            "실망",
-            "기대 이하",
-            "기대이하",
-            "추천하기 어렵",
-            "추천하기 힘들",
-            "다시는 안",
-            "다시 갈 생각 없",
-            "돈이 아깝",
-            "아쉬운 점",
-            "아쉬웠"
-        ]
+            "별로였다", "별로였", "실망", "기대 이하", "기대이하", "비추천",
+            "추천하기 어렵", "추천하기 힘들", "추천 안", "추천하지 않",
+            "다시는 안", "다신 안", "다신 오지", "다신안", "다시 갈 생각 없",
+            "다시 방문할 의사는 없", "재방문하기 싫", "재방문 의사 없",
+            "돈이 아깝", "두번은 안갈", "두 번은 안 갈"
+        ],
     }
-
-
-    # ======================================
-    # 자연스러운 긍정 표현
-    # ======================================
 
     natural_positive_phrases = {
-
         "맛": [
-            "맛이 좋",
-            "맛은 좋",
-            "맛도 좋",
-            "맛이 괜찮",
-            "맛은 괜찮",
-            "맛도 괜찮",
-            "맛이 나쁘지 않",
-            "맛은 나쁘지 않",
-            "맛도 나쁘지 않",
-            "먹을만",
-            "먹을 만",
-            "맛볼 만",
-            "맛볼만",
-            "추천할 만",
-            "추천할만"
+            "맛이 좋", "맛은 좋", "맛도 좋", "맛이 괜찮", "맛은 괜찮", "맛도 괜찮",
+            "맛이 나쁘지 않", "맛은 나쁘지 않", "맛도 나쁘지 않", "먹을만", "먹을 만",
+            "맛볼 만", "추천할 만", "입에서 녹", "살살 녹", "퀄리티가 좋", "고기 질이 좋",
+            "고기질도 좋", "국물끝내", "국물 끝내"
         ],
-
         "서비스": [
-            "친절하",
-            "친절했",
-            "친절해서",
-            "서비스가 좋",
-            "서비스는 좋",
-            "응대가 좋",
-            "응대는 좋"
+            "친절하", "친절했", "친절해서", "서비스가 좋", "서비스는 좋", "서비스도 좋",
+            "응대가 좋", "응대는 좋", "서비스가 훌륭", "서비스도 훌륭", "접객", "프로페셔널", "프로패셔널",
+            "설명을 잘 해주", "설명도 잘 해주", "손질해주", "손질 해주", "자리도 잡아주",
+            "빠르고 정확하게", "서비스는 빠른", "서비스 속도는 빠른", "대응은 매우 만족", "대응은 만족"
         ],
-
         "가격/가성비": [
-            "가격이 괜찮",
-            "가격은 괜찮",
-            "가격도 괜찮",
-            "가성비가 좋",
-            "가성비는 좋",
-            "가성비도 좋",
-            "가격 대비 괜찮",
-            "가격 대비 좋"
+            "가격이 괜찮", "가격은 괜찮", "가격도 괜찮", "가성비가 좋", "가성비는 좋",
+            "가성비도 좋", "가성비 최고", "가성비 끝판왕", "킹갓성비", "가성비 맛집",
+            "가성비와 가심비", "가격 대비 괜찮", "가격대비 괜찮", "가격 대비 좋",
+            "가격대비 좋", "가격 대비 훌륭", "가격대비 훌륭", "가격 대비 푸짐",
+            "가격대비 푸짐", "합리적", "저렴", "가격도 적당", "가격이 적당",
+            "가격도 부담스럽지 않", "가격이 부담스럽지 않"
         ],
-
-        "청결": [
-            "깨끗하",
-            "깔끔하",
-            "청결하",
-            "위생적"
-        ],
-
+        "청결": ["깨끗하", "깨끗해", "깔끔하", "깔끔해", "청결하", "위생적", "정리정돈이 잘"],
         "분위기": [
-            "분위기가 좋",
-            "분위기는 좋",
-            "분위기도 좋",
-            "분위기가 괜찮",
-            "분위기는 괜찮"
+            "분위기가 좋", "분위기는 좋", "분위기도 좋", "분위기가 괜찮", "분위기는 괜찮",
+            "분위기가 예쁘", "공간도 이쁘", "공간이 이쁘", "쾌적", "아늑", "개방감이 좋",
+            "인테리어가 좋", "인테리어가 예쁘", "힙한 분위기"
         ],
-
         "전체 만족": [
-            "만족",
-            "추천",
-            "재방문",
-            "다시 가",
-            "또 가",
-            "좋은 곳",
-            "좋은집",
-            "좋은 집"
-        ]
+            "만족", "추천", "재방문", "다시 가", "또 가", "좋은 곳", "좋은집", "좋은 집",
+            "다시 방문", "또 방문", "강추", "단골", "방문할 가치"
+        ],
     }
 
+    def is_information_only(sentence):
+        return any(p in sentence for p in ["폐업", "영업 종료", "영업종료"])
 
-    # ======================================
-    # 부정 표현이 실제 부정인지 확인
-    # ======================================
-
-    def is_negated_expression(
-        sentence,
-        expression
-    ):
-
-        index = sentence.find(
-            expression
-        )
-
-
-        if index == -1:
-
-            return False
-
-
-        after_index = (
-            index
-            + len(expression)
-        )
-
-
-        after_text = sentence[
-            after_index:
-            after_index + 25
-        ]
-
-
-        # ----------------------------------
-        # 이중 부정 / 긍정으로 뒤집히는 경우
-        # ----------------------------------
-
-        positive_turn_phrases = [
-
-            "을 수가 없",
-            "을수가 없",
-            "을 수 없",
-            "을수 없",
-
-            "ㄹ 수가 없",
-            "ㄹ수가 없",
-            "ㄹ 수 없",
-            "ㄹ수 없",
-
-            "진 않",
-            "지는 않",
-            "지는않",
-            "진않",
-
-            "않다",
-            "않아요",
-            "않습니다",
-
-            "아니",
-            "없진",
-            "없지는"
-        ]
-
-
-        for phrase in (
-            positive_turn_phrases
-        ):
-
-            if phrase in after_text:
-
-                return True
-
-
-        return False
-
-
-    # ======================================
-    # 문장 전체가 중립화되는 경우
-    # ======================================
-
-    def is_neutral_sentence(
-        sentence
-    ):
-
+    def is_neutral_sentence(sentence):
+        # V84: '나쁘지 않다' 하나 때문에 문장 전체를 중립화하지 않는다.
         neutral_patterns = [
-
             "친절하지는 않으나 불친절한 것도 아니다",
             "친절하지는 않지만 불친절한 것도 아니다",
-            "불친절한 것도 아니다",
-            "불친절한 것은 아니다",
-
-            "친절하지않으나 불친절한 것도 아니다",
-            "친절하지않지만 불친절한 것도 아니다",
-
-            "맛이 없진 않",
-            "맛이없진 않",
-
-            "나쁘지 않",
-            "나쁘지않"
+            "불친절한 것도 아니다", "불친절한 것은 아니다",
+            "맛이 없진 않", "맛이없진 않",
         ]
+        return any(p in sentence for p in neutral_patterns)
 
+    def is_negated_expression(sentence, expression):
+        """표현 바로 앞뒤의 부정만 본다. 멀리 떨어진 '힘들다' 같은 말을 오인하지 않는다."""
+        idx = sentence.find(expression)
+        if idx < 0:
+            return False
+        before = sentence[max(0, idx - 4):idx]
+        after = sentence[idx + len(expression): idx + len(expression) + 22]
 
-        for pattern in (
-            neutral_patterns
-        ):
+        if expression.startswith("추천") and before.endswith("비"):
+            return True
+        if expression.startswith("친절") and before.endswith("불"):
+            return True
 
-            if pattern in sentence:
+        double_neg = ["적 없", "적이 없", "적 없다", "적이 없다", "던적 없", "던 적 없"]
+        if any(p in after for p in double_neg):
+            return False
 
+        immediate_neg = ["지 않", "하지 않", "하지않", "않았", "않음", "않다", "않아요", "않습니다"]
+        if any(p in after[:14] for p in immediate_neg):
+            return True
+
+        if expression.startswith("추천"):
+            recommendation_neg = ["안 해", "안해", "못 하", "못하", "어렵", "힘들"]
+            if any(p in after for p in recommendation_neg):
                 return True
-
 
         return False
 
-
-    # ======================================
-    # 정보성 문장 확인
-    # ======================================
-
-    def is_information_only(
-        sentence
-    ):
-
-        information_phrases = [
-
-            "폐업",
-            "폐업함",
-            "지금은 폐업",
-            "폐업했습니다",
-            "폐업했",
-            "영업 종료",
-            "영업종료"
-        ]
-
-
-        for phrase in (
-            information_phrases
-        ):
-
-            if phrase in sentence:
-
-                return True
-
-
-        return False
-
-
-    # ======================================
-    # 일반 카테고리 분석
-    # ======================================
-
-    for category, rules in REVIEW_RULES.items():
-
-        positive_score = 0
-        negative_score = 0
-
-        positive_matches = []
-        negative_matches = []
-
-
-        # ======================================
-        # 웨이팅은 기존 숫자 분석 사용
-        # ======================================
-
-        if category == "웨이팅":
-
-            waiting_result = analyze_waiting(
-                sentences
-            )
-
-            positive_score = (
-                waiting_result[
-                    "positive_score"
-                ]
-            )
-
-            negative_score = (
-                waiting_result[
-                    "negative_score"
-                ]
-            )
-
-            positive_matches = (
-                waiting_result[
-                    "positive_matches"
-                ]
-            )
-
-            negative_matches = (
-                waiting_result[
-                    "negative_matches"
-                ]
-            )
-
-
-        else:
-
-            for sentence in sentences:
-
-                working_sentence = sentence
-
-
-                # ==================================
-                # 정보성 리뷰는 감정 분석에서 제외
-                # ==================================
-
-                if is_information_only(
-                    sentence
-                ):
-
-                    continue
-
-
-                # ==================================
-                # 이중 부정 / 중립 문장
-                # ==================================
-
-                neutral_sentence = (
-                    is_neutral_sentence(
-                        sentence
-                    )
-                )
-
-
-                # ==================================
-                # 다른 식당을 칭찬하는 문장 제외
-                # ==================================
-
-                other_place = (
-                    is_other_place_sentence(
-                        sentence
-                    )
-                )
-
-
-                # ==================================
-                # 기존 긴 문맥 규칙
-                # ==================================
-
-                if category in CONTEXT_RULES:
-
-                    context_rules = (
-                        CONTEXT_RULES[
-                            category
-                        ]
-                    )
-
-
-                    # ------------------------------
-                    # 기존 긍정 문맥
-                    # ------------------------------
-
-                    for expression, weight in (
-                        context_rules[
-                            "positive"
-                        ].items()
-                    ):
-
-                        if expression in working_sentence:
-
-                            if (
-                                not other_place
-                                and not neutral_sentence
-                                and not is_negated_expression(
-                                    working_sentence,
-                                    expression
-                                )
-                            ):
-
-                                count = (
-                                    working_sentence.count(
-                                        expression
-                                    )
-                                )
-
-                                positive_score += (
-                                    count * weight
-                                )
-
-                                positive_matches.append(
-                                    expression
-                                )
-
-
-                            working_sentence = (
-                                working_sentence.replace(
-                                    expression,
-                                    " "
-                                )
-                            )
-
-
-                    # ------------------------------
-                    # 기존 부정 문맥
-                    # ------------------------------
-
-                    for expression, weight in (
-                        context_rules[
-                            "negative"
-                        ].items()
-                    ):
-
-                        if expression in working_sentence:
-
-                            if (
-                                not neutral_sentence
-                                and not is_negated_expression(
-                                    working_sentence,
-                                    expression
-                                )
-                            ):
-
-                                count = (
-                                    working_sentence.count(
-                                        expression
-                                    )
-                                )
-
-                                negative_score += (
-                                    count * weight
-                                )
-
-                                negative_matches.append(
-                                    expression
-                                )
-
-
-                            working_sentence = (
-                                working_sentence.replace(
-                                    expression,
-                                    " "
-                                )
-                            )
-
-
-                # ==================================
-                # 청결은 청결 관련 문장만
-                # ==================================
-
-                if (
-                    category == "청결"
-                    and not is_cleanliness_sentence(
-                        sentence
-                    )
-                ):
-
-                    continue
-
-
-                # ==================================
-                # 새 자연어 긍정 표현
-                # ==================================
-
-                for expression in (
-                    natural_positive_phrases.get(
-                        category,
-                        []
-                    )
-                ):
-
-                    if expression in working_sentence:
-
-                        if other_place:
-
-                            continue
-
-
-                        if neutral_sentence:
-
-                            continue
-
-
-                        if is_negated_expression(
-                            working_sentence,
-                            expression
-                        ):
-
-                            continue
-
-
-                        positive_score += 2
-
-                        positive_matches.append(
-                            expression
-                        )
-
-
-                # ==================================
-                # 기존 긍정 표현
-                # ==================================
-
-                for expression, weight in (
-                    rules[
-                        "positive"
-                    ].items()
-                ):
-
-                    if expression in working_sentence:
-
-                        if other_place:
-
-                            continue
-
-
-                        if neutral_sentence:
-
-                            continue
-
-
-                        if is_negated_expression(
-                            working_sentence,
-                            expression
-                        ):
-
-                            continue
-
-
-                        count = (
-                            working_sentence.count(
-                                expression
-                            )
-                        )
-
-                        positive_score += (
-                            count * weight
-                        )
-
-                        positive_matches.append(
-                            expression
-                        )
-
-
-                # ==================================
-                # 새 자연어 부정 표현
-                # ==================================
-
-                for expression in (
-                    natural_negative_phrases.get(
-                        category,
-                        []
-                    )
-                ):
-
-                    if expression in working_sentence:
-
-                        if neutral_sentence:
-
-                            continue
-
-
-                        if is_negated_expression(
-                            working_sentence,
-                            expression
-                        ):
-
-                            continue
-
-
-                        negative_score += 3
-
-                        negative_matches.append(
-                            expression
-                        )
-
-
-                # ==================================
-                # 기존 부정 표현
-                # ==================================
-
-                for expression, weight in (
-                    rules[
-                        "negative"
-                    ].items()
-                ):
-
-                    if expression in working_sentence:
-
-                        if neutral_sentence:
-
-                            continue
-
-
-                        if is_negated_expression(
-                            working_sentence,
-                            expression
-                        ):
-
-                            continue
-
-
-                        count = (
-                            working_sentence.count(
-                                expression
-                            )
-                        )
-
-                        negative_score += (
-                            count * weight
-                        )
-
-                        negative_matches.append(
-                            expression
-                        )
-
-
-        # ======================================
-        # 맛은 음식 관련 리뷰에서만 사용
-        # ======================================
-
-        if (
-            category == "맛"
-            and not food_related
-        ):
-
-            positive_score = 0
-            negative_score = 0
-
-            positive_matches = []
-            negative_matches = []
-
-
-        # ======================================
-        # 리뷰 별점은 텍스트 감정 점수에 다시 넣지 않는다.
-        # Google 전체 평점이 최종 추천 점수에서 별도로 반영되므로
-        # 여기서는 리뷰 문장 자체의 내용만 분석한다.
-        # ======================================
-
-        # ======================================
-        # 최종 감정 결정
-        # ======================================
-
-        result = decide_result(
-            positive_score,
-            negative_score
-        )
-
-
-        analysis[category] = {
-
-            "result":
-                result,
-
-            "positive_score":
-                positive_score,
-
-            "negative_score":
-                negative_score,
-
-            "positive_matches":
-                list(
-                    set(
-                        positive_matches
-                    )
-                ),
-
-            "negative_matches":
-                list(
-                    set(
-                        negative_matches
-                    )
-                )
+    def apply_context_corrections(category, clause):
+        """확실한 문맥을 먼저 점수화하고 해당 부분을 마스킹한다."""
+        pos = neg = 0
+        pm, nm = [], []
+        work = clause
+
+        rules = {
+            "맛": {
+                "pos": [
+                    (r"(?:비린\s*맛|비린맛|비린\s*냄새|잡내|누린내)[^,;.!?]{0,14}(?:전혀\s*)?(?:안\s*나|없)", 7, "잡내/비린맛 없음"),
+                    (r"느끼(?:함|할\s*수\s*있는\s*맛)?[^,;.!?]{0,20}(?:잡아|잡아주|없이|않)", 5, "느끼함을 잘 잡음"),
+                    (r"느끼[^,;.!?]{0,30}좋아하[^,;.!?]{0,20}취향저격", 2, "취향에 따라 선호"),
+                ],
+                "neg": [
+                    (r"맛있(?:다|다고|다는|긴)?[^,;.!?]{0,18}(?:느낌은\s*아니|정도는\s*아니|하긴\s*어렵)", 5, "맛있다고 하긴 어려움"),
+                    (r"(?:맛|퀄리티)[^,;.!?]{0,12}(?:많이\s*떨어|기대(?:보다|에)\s*못|못\s*미쳤|아쉬|의문)", 5, "맛 기대 이하"),
+                    (r"(?:스테이크|고기|음식|메뉴|요리|삼겹살|족발|국밥|냉면|파스타|피자)[^,;.!?]{0,24}(?:만족스럽지\s*못|질겼|질기|퍽퍽|설익|아쉽|별로)", 5, "메뉴 품질 불만"),
+                    (r"느끼[^,;.!?]{0,30}좋아하[^,;.!?]{0,20}취향저격", 2, "취향에 따라 호불호"),
+                ],
+                "neutral": [r"맛없으면\s*어쩌"]
+            },
+            "서비스": {
+                "pos": [
+                    (r"친절하지[^,;.!?]{0,18}(?:던\s*)?적(?:이)?\s*없", 9, "항상 친절했다는 이중부정"),
+                    (r"(?:접객|서비스)[^,;.!?]{0,10}(?:훌륭|최고)", 5, "훌륭한 서비스"),
+                    (r"(?:설명|안내)[^,;.!?]{0,12}(?:잘\s*해주|친절)", 4, "설명/안내가 좋음"),
+                    (r"손질[^,;.!?]{0,10}해주", 4, "손질 서비스"),
+                    (r"(?:서비스와\s*대응|대응)[^,;.!?]{0,10}(?:매우\s*)?만족", 4, "서비스 대응 만족"),
+                    (r"(?:직원|종업원|서버)[^,;.!?]{0,15}(?:프로페셔널|프로패셔널)", 4, "전문적인 서비스"),
+                ],
+                "neg": [
+                    (r"(?:서비스\s*개판|인종차별|쌩\s*무시|친절하게\s*느껴지지\s*않|다신[^,;.!?]{0,10}서비스)", 9, "강한 서비스 불만"),
+                    (r"(?:직원|종업원|서버|서비스|응대|태도)[^,;.!?]{0,22}(?:불친절|불쾌|무시|아쉬|실망|신경도\s*안)", 8, "서비스 불만"),
+                ],
+                "neutral": []
+            },
+            "가격/가성비": {
+                "pos": [
+                    (r"가격(?:에|\s*대비)[^,;.!?]{0,18}(?:푸짐|훌륭|좋|만족|알차)", 6, "가격 대비 긍정"),
+                    (r"(?:가성비와\s*가심비|가성비\s*끝판왕|킹갓성비)", 6, "강한 가성비 긍정"),
+                ],
+                "neg": [
+                    (r"가격[^,;.!?]{0,16}(?:다소|상당히|꽤)?\s*(?:높|비싸|나가는|부담|아쉽)", 5, "가격 부담"),
+                    (r"이\s*가격이면[^,;.!?]{0,20}(?:나아|낫)", 6, "가격 대비 불만"),
+                ],
+                "neutral": []
+            },
+            "청결": {
+                "pos": [(r"(?:매장|가게|식당|주방|화장실|내부)?[^,;.!?]{0,8}(?:완전|매우|정말|너무)?\s*(?:깨끗(?!하지)|깔끔(?!하지))", 4, "깨끗한 환경")],
+                "neg": [(r"깨끗하지\s*못", 6, "청결 불만")],
+                "neutral": []
+            },
+            "분위기": {
+                "pos": [(r"분위기[^,;.!?]{0,14}(?:정말|너무|매우|진짜|꽤나)?\s*(?:좋|예쁘|멋지|아늑|힙|일본|뉴욕|현지)", 5, "좋은 분위기")],
+                "neg": [(r"(?:분위기|매장|가게|식당|공간|음악|소리)[^,;.!?]{0,18}(?:시끄|정신없|어수선|대화가\s*힘들|너무\s*덥|더웠|좁)", 5, "불편한 분위기")],
+                "neutral": []
+            },
+            "전체 만족": {
+                "pos": [],
+                "neg": [
+                    (r"(?:비추천|추천\s*안|추천하지\s*않|추천하기\s*(?:어렵|힘들))", 7, "추천 부정"),
+                    (r"(?:다신|다시는)[^,;.!?]{0,18}(?:안|않|오지|갈|방문)", 8, "재방문 의사 없음"),
+                    (r"재방문[^,;.!?]{0,15}(?:싫|없)", 8, "재방문 의사 없음"),
+                ],
+                "neutral": []
+            }
         }
 
+        config = rules.get(category, {"pos": [], "neg": [], "neutral": []})
 
-    # ======================================
-    # 음식 관련 여부
-    # ======================================
+        # 취향 조건부 표현은 좋다/나쁘다 한쪽으로 단정하지 않고 혼합으로 둔다.
+        if category == "맛" and re.search(r"느끼[^,;.!?]{0,30}좋아하[^,;.!?]{0,20}취향저격", work):
+            pos += 2
+            neg += 2
+            pm.append("취향에 따라 선호")
+            nm.append("취향에 따라 호불호")
+            work = re.sub(r"느끼[^,;.!?]{0,30}좋아하[^,;.!?]{0,20}취향저격", " ", work)
 
-    analysis[
-        "음식 관련"
-    ] = food_related
+        if category == "가격/가성비" and re.search(r"(?:여기|이곳|가격)[^,;.!?]{0,12}(?:좀\s*)?비싸", work):
+            neg += 4
+            nm.append("가격이 비쌈")
+            work = re.sub(r"(?:여기|이곳|가격)[^,;.!?]{0,12}(?:좀\s*)?비싸\w*", " ", work)
 
+        if category == "분위기" and re.search(r"(?:시끌시끌|너무\s*더워|너무\s*더웠|너무\s*덥|대화가\s*힘들)", work):
+            neg += 4
+            nm.append("공간이 불편함")
+            work = re.sub(r"(?:시끌시끌|너무\s*더워|너무\s*더웠|너무\s*덥|대화가\s*힘들)", " ", work)
 
+        for pattern in config.get("neutral", []):
+            work = re.sub(pattern, " ", work)
+
+        for pattern, weight, label in config.get("pos", []):
+            if re.search(pattern, work):
+                pos += weight
+                pm.append(label)
+                work = re.sub(pattern, " ", work)
+
+        for pattern, weight, label in config.get("neg", []):
+            if re.search(pattern, work):
+                neg += weight
+                nm.append(label)
+                work = re.sub(pattern, " ", work)
+
+        return pos, neg, pm, nm, work
+
+    for category, rules in REVIEW_RULES.items():
+        positive_score = negative_score = 0
+        positive_matches, negative_matches = [], []
+
+        if category == "웨이팅":
+            waiting = analyze_waiting(sentences)
+            positive_score = waiting["positive_score"]
+            negative_score = waiting["negative_score"]
+            positive_matches = waiting["positive_matches"]
+            negative_matches = waiting["negative_matches"]
+        else:
+            for clause in clauses:
+                if is_information_only(clause):
+                    continue
+                if is_other_place_sentence(clause):
+                    # V84: 다른 식당의 긍정뿐 아니라 부정도 현재 식당 점수에서 제외.
+                    continue
+                if category == "청결" and not is_cleanliness_sentence(clause):
+                    continue
+                if category == "분위기" and not is_atmosphere_sentence(clause):
+                    continue
+
+                neutral_clause = is_neutral_sentence(clause)
+                cp, cn, cpm, cnm, working = apply_context_corrections(category, clause)
+                positive_score += cp
+                negative_score += cn
+                positive_matches.extend(cpm)
+                negative_matches.extend(cnm)
+
+                if category in CONTEXT_RULES:
+                    for expression, weight in CONTEXT_RULES[category]["positive"].items():
+                        if expression in working:
+                            if not neutral_clause and not is_negated_expression(working, expression):
+                                positive_score += working.count(expression) * weight
+                                positive_matches.append(expression)
+                            working = working.replace(expression, " ")
+                    for expression, weight in CONTEXT_RULES[category]["negative"].items():
+                        if expression in working:
+                            if not neutral_clause and not is_negated_expression(working, expression):
+                                negative_score += working.count(expression) * weight
+                                negative_matches.append(expression)
+                            working = working.replace(expression, " ")
+
+                for expression in natural_positive_phrases.get(category, []):
+                    if expression in working and not neutral_clause and not is_negated_expression(working, expression):
+                        positive_score += 2
+                        positive_matches.append(expression)
+
+                for expression, weight in rules["positive"].items():
+                    if expression in working and not neutral_clause and not is_negated_expression(working, expression):
+                        positive_score += working.count(expression) * weight
+                        positive_matches.append(expression)
+
+                for expression in natural_negative_phrases.get(category, []):
+                    if expression in working and not neutral_clause and not is_negated_expression(working, expression):
+                        negative_score += 3
+                        negative_matches.append(expression)
+
+                for expression, weight in rules["negative"].items():
+                    if expression in working and not neutral_clause and not is_negated_expression(working, expression):
+                        negative_score += working.count(expression) * weight
+                        negative_matches.append(expression)
+
+        if category == "맛" and not food_related:
+            positive_score = negative_score = 0
+            positive_matches, negative_matches = [], []
+
+        result = decide_result(positive_score, negative_score)
+        analysis[category] = {
+            "result": result,
+            "positive_score": positive_score,
+            "negative_score": negative_score,
+            "positive_matches": list(set(positive_matches)),
+            "negative_matches": list(set(negative_matches)),
+        }
+
+    analysis["음식 관련"] = food_related
     return analysis
 
 # ======================================
@@ -9139,6 +8630,7 @@ if search_button:
             )
 
             if preloaded is not None:
+                preloaded = deduplicate_reviews(preloaded)
                 place["_cached_reviews"] = preloaded
                 place.setdefault(
                     "_reviews_fetch_status",
@@ -9198,6 +8690,7 @@ if search_button:
                             "reviews",
                             []
                         )
+                        reviews = deduplicate_reviews(reviews)
                         place["_cached_reviews"] = reviews
                         place["_reviews_fetch_status"] = (
                             "ok" if reviews else "no_reviews"
@@ -10522,11 +10015,11 @@ if search_button:
                                     "음식 관련"
                                 ]:
                                     st.caption(
-                                        "🍴 음식 관련 리뷰"
+                                        "🍽️ 식당 평가 리뷰"
                                     )
                                 else:
                                     st.caption(
-                                        "⚪ 음식 관련성 낮음"
+                                        "⚪ 식당 평가 관련성 낮음"
                                     )
 
                             render_review_text(
