@@ -3,6 +3,7 @@ import html
 import streamlit as st
 import requests
 import re
+import time
 
 
 st.set_page_config(
@@ -741,16 +742,152 @@ def is_cleanliness_sentence(sentence):
 # ======================================
 
 def analyze_waiting(sentences):
+    """
+    웨이팅 문맥 분석.
+
+    핵심 원칙:
+    1) "웨이팅 없음"이라는 단어만으로 긍정 처리하지 않는다.
+    2) "웨이팅 없이 바로 입장"처럼 실제 입장 경험이 좋았을 때만 긍정한다.
+    3) "웨이팅 없는 다른 곳", "굳이 기다릴 필요 없다"처럼
+       다른 가게와 비교하거나 기다릴 가치가 없다는 표현은 부정으로 본다.
+    4) 숫자 시간은 웨이팅 문맥에 가까이 붙어 있을 때만 대기시간으로 본다.
+       음식 조리/서빙 시간은 웨이팅 시간으로 오해하지 않는다.
+    """
 
     positive_score = 0
     negative_score = 0
-
     positive_matches = []
     negative_matches = []
 
+    # 현재 식당의 웨이팅을 부정적으로 평가하는 강한 문맥.
+    negative_context_patterns = [
+        (
+            r"웨이팅\s*(?:이|은|도)?\s*없는?\s*다른\s*(?:곳|가게|데)",
+            "웨이팅 없는 다른 곳과 비교",
+        ),
+        (
+            r"대기\s*(?:가|는|도)?\s*없는?\s*다른\s*(?:곳|가게|데)",
+            "대기 없는 다른 곳과 비교",
+        ),
+        (
+            r"굳이[^.!?\n]{0,30}웨이팅[^.!?\n]{0,20}(?:안|하지)",
+            "굳이 웨이팅할 필요가 없다는 표현",
+        ),
+        (
+            r"굳이[^.!?\n]{0,30}대기[^.!?\n]{0,20}(?:안|하지)",
+            "굳이 대기할 필요가 없다는 표현",
+        ),
+        (
+            r"굳이[^.!?\n]{0,30}기다[^.!?\n]{0,20}(?:필요|이유|가치)",
+            "굳이 기다릴 이유가 없다는 표현",
+        ),
+        (
+            r"웨이팅[^.!?\n]{0,20}(?:할|해서|해가며)[^.!?\n]{0,20}(?:가치|정도는\s*아니|필요\s*없)",
+            "웨이팅할 가치가 낮다는 표현",
+        ),
+        (
+            r"대기[^.!?\n]{0,20}(?:할|해서|해가며)[^.!?\n]{0,20}(?:가치|정도는\s*아니|필요\s*없)",
+            "대기할 가치가 낮다는 표현",
+        ),
+        (
+            r"기다[^.!?\n]{0,20}(?:가치\s*없|필요가?\s*없|정도는\s*아니)",
+            "기다릴 가치가 낮다는 표현",
+        ),
+        (
+            r"줄\s*(?:서|서서|까지\s*서)[^.!?\n]{0,20}(?:먹을|갈)[^.!?\n]{0,15}(?:정도는\s*아니|가치\s*없)",
+            "줄 서서 먹을 가치가 낮다는 표현",
+        ),
+        (
+            r"웨이팅[^.!?\n]{0,25}더\s*좋은\s*(?:곳|가게|데)",
+            "웨이팅보다 더 좋은 다른 곳이 있다는 표현",
+        ),
+        (
+            r"대기[^.!?\n]{0,25}더\s*좋은\s*(?:곳|가게|데)",
+            "대기보다 더 좋은 다른 곳이 있다는 표현",
+        ),
+    ]
+
+    # 실제로 기다리지 않고 들어갔다는 경험이 확인되는 경우만 긍정.
+    positive_patterns = [
+        "바로 들어",
+        "바로 입장",
+        "웨이팅 없이 바로",
+        "대기 없이 바로",
+        "기다림 없이 바로",
+        "웨이팅 없이 들어",
+        "대기 없이 들어",
+        "기다림 없이 들어",
+        "웨이팅이 없었",
+        "웨이팅은 없었",
+        "대기가 없었",
+        "대기는 없었",
+        "기다리지 않고",
+        "기다리지 않아서",
+        "기다릴 필요 없이",
+        "줄이 금방 줄",
+        "순식간에 줄이 줄",
+        "회전율은 빠",
+        "회전율이 빠",
+    ]
+
+    negative_patterns = [
+        "웨이팅 길",
+        "대기 길",
+        "오래 기다",
+        "한참 기다",
+        "웨이팅 대박",
+        "극악의 웨이팅",
+        "웨이팅이 불가",
+        "웨이팅 해야",
+        "웨이팅해야",
+        "대기해야",
+        "대기 해야",
+        "기다렸",
+        "줄을 서서",
+        "줄을 서야",
+        "줄서서",
+        "줄서야",
+        "줄이 길",
+        "대기가 길",
+        "대기줄이 길",
+        "대기 줄이 길",
+        "웨이팅이 길",
+        "웨이팅을 오래",
+        "기다려야",
+        "기다려야 했",
+        "기다리다",
+        "기다리는 시간",
+        "웨이팅이 있었",
+        "웨이팅은 있었",
+        "대기가 있었",
+        "대기는 있었",
+    ]
+
+    # 숫자 주변에 이런 말이 있으면 조리/서빙 시간일 가능성이 높다.
+    preparation_time_terms = [
+        "요리",
+        "음식",
+        "메뉴",
+        "조리",
+        "주방",
+        "서빙",
+        "나오",
+        "나오는",
+        "나오기",
+        "간격",
+    ]
+
+    short_wait_positive_terms = [
+        "도 안",
+        "안 걸",
+        "이내",
+        "미만",
+        "금방",
+        "잠깐",
+        "바로",
+    ]
 
     for sentence in sentences:
-
         waiting_word = (
             "웨이팅" in sentence
             or "대기" in sentence
@@ -758,176 +895,143 @@ def analyze_waiting(sentences):
             or "줄" in sentence
         )
 
-
         if not waiting_word:
             continue
 
+        # --------------------------------------
+        # 1. 강한 부정 문맥을 먼저 처리한다.
+        # --------------------------------------
+        strong_negative = False
+
+        matched_context_labels = []
+
+        for pattern, label in negative_context_patterns:
+            if re.search(pattern, sentence):
+                matched_context_labels.append(label)
+
+        if matched_context_labels:
+            # 같은 문장이 여러 규칙에 동시에 걸려도
+            # 문장 하나를 여러 번 감점하지 않는다.
+            negative_score += 5
+            negative_matches.append(
+                matched_context_labels[0]
+            )
+            strong_negative = True
+
+        # 강한 부정 문맥이 있는 문장에서는
+        # "웨이팅 없" 같은 일부 문자열 때문에 긍정이 섞이지 않게 한다.
+        if not strong_negative:
+            for pattern in positive_patterns:
+                if pattern in sentence:
+                    positive_score += 3
+                    positive_matches.append(pattern)
 
         # --------------------------------------
-        # 긍정적인 대기 표현
+        # 2. 일반적인 부정 대기 표현
         # --------------------------------------
-
-        positive_patterns = [
-            "바로 들어",
-            "바로 입장",
-            "웨이팅 없",
-            "대기 없",
-            "기다리지 않",
-            "줄이 금방 줄",
-            "순식간에 줄이 줄",
-            "회전율은 빠",
-            "회전율이 빠",
-            "웨이팅도 없이",
-            "대기 없이",
-            "기다림 없이",
-            "기다릴 필요 없"
-        ]
-
-
-        for pattern in positive_patterns:
-
-            if pattern in sentence:
-
-                positive_score += 3
-
-                positive_matches.append(
-                    pattern
-                )
-
-
-        # --------------------------------------
-        # 명시적인 부정 표현
-        # --------------------------------------
-
-        negative_patterns = [
-            "웨이팅 길",
-            "대기 길",
-            "오래 기다",
-            "한참 기다",
-            "웨이팅 대박",
-            "극악의 웨이팅",
-            "웨이팅이 불가",
-            "대기하다",
-            "기다렸",
-            "앞에 13팀",
-            "줄을 서서",
-            "줄을 서야",
-            "줄이 길",
-            "대기가 길",
-            "대기줄이 길",
-            "대기 줄이 길",
-            "웨이팅이 길",
-            "웨이팅을 오래",
-            "기다려야",
-            "기다려야 했",
-            "기다리다",
-            "기다리는 시간"
-        ]
-
-
         for pattern in negative_patterns:
-
             if pattern in sentence:
-
                 negative_score += 3
-
-                negative_matches.append(
-                    pattern
-                )
-
+                negative_matches.append(pattern)
 
         # --------------------------------------
-        # 시간 자동 인식
-        #
-        # 15분 / 30분 / 1시간 / 2시간 등
+        # 3. 시간 자동 인식
         # --------------------------------------
+        # 숫자 바로 주변 문맥만 보고 웨이팅 시간인지 판단한다.
+        # 조리/서빙 문맥이 가까우면 대기시간에서 제외한다.
+        time_patterns = [
+            (r"(\d+(?:\.\d+)?)\s*시간", "hour"),
+            (r"(\d+)\s*분", "minute"),
+        ]
 
-        hour_matches = re.findall(
-            r"(\d+(?:\.\d+)?)\s*시간",
-            sentence
-        )
+        for time_pattern, unit in time_patterns:
+            for match in re.finditer(time_pattern, sentence):
+                span_start, span_end = match.span()
+                nearby = sentence[
+                    max(0, span_start - 24):
+                    min(len(sentence), span_end + 24)
+                ]
 
-
-        for hour_text in hour_matches:
-
-            hours = float(
-                hour_text
-            )
-
-
-            if hours >= 1:
-
-                negative_score += 5
-
-                negative_matches.append(
-                    f"{hour_text}시간 대기"
+                nearby_has_wait = any(
+                    token in nearby
+                    for token in ["웨이팅", "대기", "기다", "줄"]
                 )
 
+                if not nearby_has_wait:
+                    continue
 
-            elif hours >= 0.5:
-
-                negative_score += 3
-
-                negative_matches.append(
-                    f"{hour_text}시간 대기"
+                nearby_has_preparation = any(
+                    token in nearby
+                    for token in preparation_time_terms
                 )
 
-
-        minute_matches = re.findall(
-            r"(\d+)\s*분",
-            sentence
-        )
-
-
-        for minute_text in minute_matches:
-
-            minutes = int(
-                minute_text
-            )
-
-
-            # "6시 40분" 같은 시각 표현을
-            # 웨이팅으로 오해하지 않도록
-            # 기다림 문맥이 있을 때만 적용
-            if waiting_word:
-
-                if minutes >= 60:
-
-                    negative_score += 5
-
-                elif minutes >= 30:
-
-                    negative_score += 4
-
-                elif minutes >= 15:
-
-                    negative_score += 2
-
-                elif minutes >= 10:
-
-                    negative_score += 1
-
-
-                if minutes >= 10:
-
-                    negative_matches.append(
-                        f"{minutes}분 대기"
+                # "주문하고 30분 기다렸다"처럼 실제 기다림 표현이
+                # 숫자 주변에 있으면 조리 단어가 있어도 웨이팅으로 본다.
+                explicit_wait_action = (
+                    "기다" in nearby
+                    or re.search(
+                        r"(?:웨이팅|대기|줄)\s*(?:약\s*)?\d",
+                        nearby
                     )
+                    is not None
+                    or re.search(
+                        r"\d+(?:\.\d+)?\s*(?:분|시간)[^.!?\n]{0,10}(?:웨이팅|대기|기다|줄)",
+                        nearby
+                    )
+                    is not None
+                )
 
+                if nearby_has_preparation and not explicit_wait_action:
+                    continue
+
+                # "10분도 안 기다림", "5분 이내 입장" 같은 짧은 대기는
+                # 부정이 아니라 긍정 신호로 처리한다.
+                if any(
+                    term in nearby
+                    for term in short_wait_positive_terms
+                ):
+                    positive_score += 2
+                    positive_matches.append(
+                        f"짧은 대기: {match.group(0)}"
+                    )
+                    continue
+
+                if unit == "hour":
+                    hours = float(match.group(1))
+
+                    if hours >= 1:
+                        negative_score += 5
+                        negative_matches.append(
+                            f"{match.group(1)}시간 대기"
+                        )
+                    elif hours >= 0.5:
+                        negative_score += 3
+                        negative_matches.append(
+                            f"{match.group(1)}시간 대기"
+                        )
+
+                else:
+                    minutes = int(match.group(1))
+
+                    if minutes >= 60:
+                        negative_score += 5
+                    elif minutes >= 30:
+                        negative_score += 4
+                    elif minutes >= 15:
+                        negative_score += 2
+                    elif minutes >= 10:
+                        negative_score += 1
+
+                    if minutes >= 10:
+                        negative_matches.append(
+                            f"{minutes}분 대기"
+                        )
 
     return {
         "positive_score": positive_score,
         "negative_score": negative_score,
-        "positive_matches": list(
-            set(
-                positive_matches
-            )
-        ),
-        "negative_matches": list(
-            set(
-                negative_matches
-            )
-        )
+        "positive_matches": list(set(positive_matches)),
+        "negative_matches": list(set(negative_matches)),
     }
 
 
@@ -1931,6 +2035,9 @@ REVIEW_RESULT_ICONS = {
 }
 
 
+# Google Places가 제공하는 리뷰 원문 표본이 작기 때문에
+# 몇 개의 강한 표현만으로 0/100에 가까워지는 것을 막는 중립 prior.
+# 화면과 최종 추천점수 모두 동일한 보정 점수를 사용한다.
 REVIEW_SENTIMENT_PRIOR = 20.0
 
 
@@ -5889,7 +5996,7 @@ def matches_custom_query_locally(place, query):
 # V68에서는 카드 점수, 상세 점수표, 리뷰 대시보드가 모두
 # get_review_sentiment_score()를 동일한 기준으로 사용한다.
 
-SCORE_FORMULA_VERSION = "V68 · Google40 + DashboardSentiment"
+SCORE_FORMULA_VERSION = "V72 · Google40(review-confidence) + DashboardSentiment"
 
 SCORE_REVIEW_CATEGORIES = [
     "맛",
@@ -5972,9 +6079,51 @@ def get_review_category_points(category_scores):
     return points, sentiment_scores
 
 
-def get_recommendation_score_breakdown(google_rating, category_scores):
+# Google 평점은 평가 수가 너무 적을 때 과신하지 않는다.
+# 단, 리뷰가 100개 이상이면 신뢰도 보정을 100%로 두어
+# Google 5.0 + 모든 리뷰 카테고리 완벽일 때 100점이 가능하다.
+GOOGLE_REVIEW_TRUST_FULL_COUNT = 100
+GOOGLE_REVIEW_TRUST_FLOOR = 0.90
+
+
+def get_google_review_confidence(google_review_count):
     """
-    최종 추천점수와 상세 점수표가 공유하는 단 하나의 계산 함수.
+    Google 전체 평가 수에 따른 평점 신뢰도 계수.
+
+    - 평가 수가 적어도 Google 평점 비중을 지나치게 깎지 않도록
+      최소 90%는 유지한다.
+    - 로그 스케일을 사용해 초반 평가 수 증가를 의미 있게 반영한다.
+    - 100개 이상이면 1.0으로 고정한다.
+    """
+    try:
+        count = max(0.0, float(google_review_count or 0))
+    except (TypeError, ValueError):
+        count = 0.0
+
+    if count >= GOOGLE_REVIEW_TRUST_FULL_COUNT:
+        return 1.0
+
+    progress = math.log1p(count) / math.log1p(
+        GOOGLE_REVIEW_TRUST_FULL_COUNT
+    )
+    progress = max(0.0, min(1.0, progress))
+
+    return (
+        GOOGLE_REVIEW_TRUST_FLOOR
+        + (1.0 - GOOGLE_REVIEW_TRUST_FLOOR) * progress
+    )
+
+
+def get_recommendation_score_breakdown(
+    google_rating,
+    category_scores,
+    google_review_count=0,
+):
+    """
+    최종 추천점수를 계산하는 단 하나의 함수.
+
+    Google 평점 40점에는 전체 평가 수에 따른 완만한 신뢰도 보정을
+    적용하고, 리뷰 카테고리 60점은 화면의 감정 점수와 동일한 값을 쓴다.
     """
     if google_rating is None:
         return None
@@ -5985,7 +6134,15 @@ def get_recommendation_score_breakdown(google_rating, category_scores):
         return None
 
     rating = max(0.0, min(5.0, rating))
-    google_points = round(rating / 5.0 * 40.0, 1)
+
+    google_base_points = rating / 5.0 * 40.0
+    google_review_confidence = get_google_review_confidence(
+        google_review_count
+    )
+    google_points = round(
+        google_base_points * google_review_confidence,
+        1
+    )
 
     review_points, sentiment_scores = get_review_category_points(
         category_scores
@@ -5997,6 +6154,11 @@ def get_recommendation_score_breakdown(google_rating, category_scores):
     return {
         "version": SCORE_FORMULA_VERSION,
         "google": google_points,
+        "google_base": round(google_base_points, 1),
+        "google_review_confidence": round(
+            google_review_confidence,
+            4
+        ),
         "categories": review_points,
         "sentiment_scores": sentiment_scores,
         "review_total": review_total,
@@ -6017,7 +6179,8 @@ def calculate_recommendation_score(
     """
     breakdown = get_recommendation_score_breakdown(
         google_rating,
-        category_scores
+        category_scores,
+        google_review_count=google_review_count,
     )
 
     if breakdown is None:
@@ -6027,7 +6190,7 @@ def calculate_recommendation_score(
 
 
 # ======================================
-# 화면 - V69 모바일 반응형 디자인
+# 화면 - V73 소프트 파스텔 카페 UI
 # ======================================
 
 # 전체 스타일
@@ -7070,6 +7233,22 @@ st.markdown(
             min-width: 0 !important;
         }
 
+        /* 입력/선택/팝오버/링크가 좁은 화면에서 가로로 넘치지 않게 */
+        div[data-testid="stTextInput"],
+        div[data-testid="stSelectbox"],
+        div[data-testid="stPopover"],
+        div[data-testid="stLinkButton"],
+        div[data-testid="stButton"] {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+
+        div[data-testid="stPopover"] > button,
+        div[data-testid="stLinkButton"] a,
+        div[data-testid="stButton"] > button {
+            width: 100% !important;
+        }
+
         .app-hero {
             padding: 1.3rem 1.05rem !important;
             border-radius: 18px !important;
@@ -7163,6 +7342,8 @@ st.markdown(
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             gap: 0.42rem;
             margin-top: 0.58rem;
+            border-radius: 13px !important;
+            padding: 0.11rem !important;
         }
 
         .meta-item {
@@ -7249,6 +7430,671 @@ st.markdown(
             font-size: 0.84rem;
         }
     }
+
+
+    /* ======================================================
+       V73 - SOFT PASTEL CAFE UI
+       기능/점수 계산은 건드리지 않고 화면 질감만 보강한다.
+       ====================================================== */
+
+    :root {
+        --v73-cream: #FFFBF7;
+        --v73-blush: #F7DDE7;
+        --v73-peach: #F9E6D7;
+        --v73-lavender: #E4E0F8;
+        --v73-lavender-strong: #B7B0E2;
+        --v73-sky: #DCECF5;
+        --v73-mint: #DDF0E7;
+        --v73-ink: #47475C;
+        --v73-soft-ink: #6C6D80;
+        --v73-border: rgba(186, 180, 211, 0.24);
+    }
+
+    html,
+    body,
+    [data-testid="stAppViewContainer"],
+    .stApp {
+        background:
+            radial-gradient(circle at 4% 4%, rgba(247, 221, 231, 0.62), transparent 25%),
+            radial-gradient(circle at 96% 8%, rgba(228, 224, 248, 0.68), transparent 27%),
+            radial-gradient(circle at 88% 88%, rgba(221, 240, 231, 0.62), transparent 29%),
+            radial-gradient(circle at 9% 92%, rgba(249, 230, 215, 0.48), transparent 25%),
+            linear-gradient(145deg, #FFFDFC 0%, #F9F7FD 42%, #F5FAF9 100%) !important;
+        background-attachment: fixed !important;
+    }
+
+    ::selection {
+        background: #DDD6F2;
+        color: #47475C;
+    }
+
+    .block-container {
+        max-width: 1100px;
+    }
+
+    /* ---------- 히어로: 파스텔 구름처럼 겹치는 그라데이션 ---------- */
+    .app-hero {
+        position: relative;
+        overflow: hidden;
+        isolation: isolate;
+        background:
+            radial-gradient(circle at 80% 18%, rgba(255,255,255,0.58), transparent 24%),
+            linear-gradient(
+                120deg,
+                #F6DDE7 0%,
+                #E6E2F8 34%,
+                #DCEBF5 67%,
+                #DDF0E7 100%
+            ) !important;
+        border: 1px solid rgba(255, 255, 255, 0.84) !important;
+        box-shadow:
+            0 18px 46px rgba(117, 107, 147, 0.12),
+            0 2px 12px rgba(145, 166, 192, 0.07),
+            inset 0 1px 0 rgba(255,255,255,0.72) !important;
+    }
+
+    .app-hero::before,
+    .app-hero::after {
+        content: "";
+        position: absolute;
+        border-radius: 999px;
+        pointer-events: none;
+        z-index: -1;
+        filter: blur(1px);
+    }
+
+    .app-hero::before {
+        width: 235px;
+        height: 235px;
+        right: -58px;
+        top: -78px;
+        background: radial-gradient(circle, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.12) 58%, transparent 72%);
+    }
+
+    .app-hero::after {
+        width: 180px;
+        height: 180px;
+        left: 51%;
+        bottom: -118px;
+        background: radial-gradient(circle, rgba(249,230,215,0.66) 0%, rgba(249,230,215,0.08) 64%, transparent 74%);
+    }
+
+    .app-hero-badge {
+        background: rgba(255,255,255,0.55) !important;
+        border: 1px solid rgba(255,255,255,0.82) !important;
+        color: #6E6882 !important;
+        box-shadow: 0 4px 14px rgba(112, 101, 143, 0.06);
+        backdrop-filter: blur(8px);
+    }
+
+    .app-hero-title {
+        color: #49485D !important;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.5);
+    }
+
+    .app-hero-subtitle {
+        color: #68697B !important;
+        max-width: 760px;
+    }
+
+    /* ---------- 섹션 제목 ---------- */
+    .section-kicker {
+        color: #9A8FC0 !important;
+        letter-spacing: 0.12em;
+    }
+
+    .section-title,
+    .results-heading-title {
+        color: #4A4A5F !important;
+    }
+
+    .section-description,
+    .results-heading-subtitle {
+        color: #77788B !important;
+    }
+
+    /* ---------- 큰 카드: 반투명 크림 + 은은한 파스텔 가장자리 ---------- */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background:
+            linear-gradient(145deg, rgba(255,255,255,0.82), rgba(255,252,250,0.70)) !important;
+        border: 1px solid rgba(255,255,255,0.90) !important;
+        outline: 1px solid rgba(190, 182, 213, 0.16);
+        box-shadow:
+            0 14px 34px rgba(108, 100, 132, 0.075),
+            0 3px 10px rgba(132, 151, 164, 0.035),
+            inset 0 1px 0 rgba(255,255,255,0.92) !important;
+        backdrop-filter: blur(12px) saturate(108%);
+    }
+
+    /* 검색 조건 카드는 크림·라벤더·민트가 아주 약하게 섞이게 */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.section-title) {
+        background:
+            radial-gradient(circle at 96% 8%, rgba(228,224,248,0.40), transparent 27%),
+            radial-gradient(circle at 4% 96%, rgba(221,240,231,0.32), transparent 25%),
+            linear-gradient(145deg, rgba(255,252,249,0.90), rgba(251,250,255,0.84)) !important;
+    }
+
+    /* ---------- 입력창 ---------- */
+    div[data-testid="stTextInput"] div[data-baseweb="input"],
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    div[data-testid="stSelectbox"] [role="combobox"] {
+        background: rgba(255,255,255,0.82) !important;
+        border-color: rgba(193, 188, 216, 0.35) !important;
+        box-shadow:
+            0 5px 14px rgba(108,100,132,0.045),
+            inset 0 1px 0 rgba(255,255,255,0.85) !important;
+    }
+
+    div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+    div[data-testid="stSelectbox"] div[role="combobox"]:focus-within {
+        border-color: #B9B1DD !important;
+        box-shadow: 0 0 0 0.18rem rgba(183,176,226,0.15) !important;
+    }
+
+    /* ---------- 팝오버/보조 버튼 ---------- */
+    div[data-testid="stPopover"] button,
+    button[data-testid="stBaseButton-secondary"],
+    button[kind="secondary"],
+    div[data-testid="stLinkButton"] a {
+        background:
+            linear-gradient(135deg, rgba(250,247,255,0.92), rgba(245,251,248,0.92)) !important;
+        border-color: rgba(190,184,213,0.34) !important;
+        box-shadow: 0 5px 14px rgba(101, 95, 126, 0.045) !important;
+    }
+
+    div[data-testid="stPopover"] button:hover,
+    button[data-testid="stBaseButton-secondary"]:hover,
+    button[kind="secondary"]:hover,
+    div[data-testid="stLinkButton"] a:hover {
+        background: linear-gradient(135deg, #F0ECFA 0%, #EDF7F2 100%) !important;
+        border-color: rgba(173,164,205,0.48) !important;
+        transform: translateY(-1px);
+    }
+
+    /* ---------- 메인 검색 버튼 ---------- */
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(
+            125deg,
+            #B7AFE1 0%,
+            #AEBFE6 34%,
+            #9CCFD0 67%,
+            #A8D6C4 100%
+        ) !important;
+        border: 1px solid rgba(255,255,255,0.76) !important;
+        box-shadow:
+            0 11px 24px rgba(126, 119, 166, 0.14),
+            inset 0 1px 0 rgba(255,255,255,0.44) !important;
+        letter-spacing: -0.01em;
+        transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+    }
+
+    div.stButton > button[kind="primary"]:hover {
+        transform: translateY(-2px);
+        filter: saturate(1.04) brightness(1.015);
+        box-shadow:
+            0 14px 28px rgba(126, 119, 166, 0.18),
+            inset 0 1px 0 rgba(255,255,255,0.52) !important;
+    }
+
+    /* ---------- 취향/상태 칩 ---------- */
+    .filter-chip {
+        background: linear-gradient(135deg, #F4EFFB 0%, #EDF7F3 100%) !important;
+        border-color: rgba(190,183,216,0.34) !important;
+        color: #615F76 !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
+    }
+
+    /* ---------- 결과 카드 ---------- */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.result-header) {
+        position: relative;
+        background:
+            radial-gradient(circle at 94% 6%, rgba(228,224,248,0.26), transparent 24%),
+            linear-gradient(145deg, rgba(255,255,255,0.88), rgba(255,250,247,0.76)) !important;
+        transition: transform 170ms ease, box-shadow 170ms ease, border-color 170ms ease;
+    }
+
+    @media (min-width: 701px) {
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.result-header):hover {
+            transform: translateY(-2px);
+            border-color: rgba(181,173,210,0.32) !important;
+            box-shadow:
+                0 18px 40px rgba(108,100,132,0.10),
+                0 5px 13px rgba(132,151,164,0.045),
+                inset 0 1px 0 rgba(255,255,255,0.94) !important;
+        }
+    }
+
+    /* 1위 카드는 살짝 더 특별하게 */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.winner-rank) {
+        background:
+            radial-gradient(circle at 90% 4%, rgba(255,255,255,0.76), transparent 22%),
+            radial-gradient(circle at 5% 100%, rgba(249,230,215,0.30), transparent 26%),
+            linear-gradient(135deg, rgba(247,235,243,0.90), rgba(238,237,251,0.88) 48%, rgba(231,246,239,0.88)) !important;
+        outline-color: rgba(178,166,210,0.26);
+        box-shadow:
+            0 20px 44px rgba(115,105,146,0.13),
+            0 4px 12px rgba(146,160,167,0.05),
+            inset 0 1px 0 rgba(255,255,255,0.94) !important;
+    }
+
+    .result-rank {
+        background: linear-gradient(135deg, #F2EEFA 0%, #EEF6F4 100%) !important;
+        border-color: rgba(190,183,216,0.35) !important;
+        color: #69667D !important;
+    }
+
+    .winner-rank {
+        background: linear-gradient(120deg, #EFCFDC 0%, #D8D6F2 48%, #CFE9DE 100%) !important;
+        border-color: rgba(255,255,255,0.66) !important;
+        color: #5C596D !important;
+        box-shadow: 0 6px 16px rgba(113,105,143,0.09) !important;
+    }
+
+    .restaurant-name {
+        color: #49495D !important;
+    }
+
+    .score-badge {
+        padding: 0.58rem 0.74rem !important;
+        border-radius: 16px;
+        background: linear-gradient(145deg, rgba(244,238,251,0.92), rgba(238,248,244,0.90));
+        border: 1px solid rgba(190,183,216,0.28);
+        box-shadow:
+            0 6px 17px rgba(105,98,132,0.055),
+            inset 0 1px 0 rgba(255,255,255,0.82);
+    }
+
+    .score-number {
+        color: #7B73AF !important;
+    }
+
+    .score-label {
+        color: #858297 !important;
+    }
+
+    /* 평점 · 리뷰 · 가격 · 도보 정보는 한 가지 파스텔 톤으로 통일 */
+    .meta-item {
+        background:
+            linear-gradient(145deg, rgba(248,246,253,0.98) 0%, rgba(243,247,252,0.98) 100%) !important;
+        border-color: rgba(184,181,210,0.24) !important;
+        box-shadow:
+            inset 0 1px 0 rgba(255,255,255,0.82),
+            0 3px 10px rgba(102,105,137,0.035);
+    }
+
+    .meta-label {
+        color: #8B86A0 !important;
+    }
+
+    .meta-value {
+        color: #55566C !important;
+    }
+
+    .address-line {
+        color: #77778A !important;
+    }
+
+    /* ---------- 상세 분석 ---------- */
+    div[data-testid="stExpander"] {
+        background: rgba(255,255,255,0.56) !important;
+        border-color: rgba(193,187,214,0.24) !important;
+    }
+
+    .detail-summary {
+        background: linear-gradient(135deg, #F7F2FC 0%, #F1F8F5 52%, #FFF7F2 100%) !important;
+        border-color: rgba(193,187,214,0.22) !important;
+        color: #626276 !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        background: linear-gradient(135deg, #F2EEFA 0%, #EFF7F4 100%) !important;
+        border: 1px solid rgba(193,187,214,0.20);
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        transition: background 150ms ease, box-shadow 150ms ease;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: rgba(255,255,255,0.80) !important;
+        color: #6D67A0 !important;
+        box-shadow: 0 3px 10px rgba(107,100,133,0.06);
+    }
+
+    /* ---------- 알림 ---------- */
+    div[data-testid="stAlert"] {
+        background: linear-gradient(135deg, rgba(248,244,253,0.88), rgba(242,249,246,0.88)) !important;
+        border-color: rgba(192,185,215,0.24) !important;
+        box-shadow: 0 4px 12px rgba(105,99,128,0.035);
+    }
+
+    /* ---------- 모바일에서는 장식과 떠오르는 효과를 줄여 안정적으로 ---------- */
+    @media (max-width: 700px) {
+        html,
+        body,
+        [data-testid="stAppViewContainer"],
+        .stApp {
+            background-attachment: scroll !important;
+        }
+
+        .app-hero::before {
+            width: 150px;
+            height: 150px;
+            right: -52px;
+            top: -52px;
+        }
+
+        .app-hero::after {
+            width: 125px;
+            height: 125px;
+            left: 48%;
+            bottom: -88px;
+        }
+
+        .score-badge {
+            padding: 0.42rem 0.58rem !important;
+            border-radius: 13px;
+        }
+
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.result-header) {
+            transform: none !important;
+        }
+
+        div.stButton > button[kind="primary"]:hover,
+        div[data-testid="stPopover"] button:hover,
+        button[data-testid="stBaseButton-secondary"]:hover,
+        button[kind="secondary"]:hover,
+        div[data-testid="stLinkButton"] a:hover {
+            transform: none !important;
+        }
+    }
+
+
+
+    /* ======================================================
+       V76 - RICHER DUSTY PASTEL
+       V75의 통일감은 유지하고 파스텔 농도만 한 단계 올린다.
+       ====================================================== */
+
+    :root {
+        --v76-blush: #F0C8D8;
+        --v76-peach: #F4D1B9;
+        --v76-lavender: #D8D0F3;
+        --v76-lavender-strong: #9E93D1;
+        --v76-sky: #CBE0F1;
+        --v76-mint: #CBE7DA;
+        --v76-ink: #424257;
+        --v76-soft-ink: #68677D;
+    }
+
+    html,
+    body,
+    [data-testid="stAppViewContainer"],
+    .stApp {
+        background:
+            radial-gradient(circle at 4% 4%, rgba(240, 200, 216, 0.76), transparent 27%),
+            radial-gradient(circle at 96% 8%, rgba(216, 208, 243, 0.82), transparent 29%),
+            radial-gradient(circle at 88% 88%, rgba(203, 231, 218, 0.76), transparent 31%),
+            radial-gradient(circle at 9% 92%, rgba(244, 209, 185, 0.64), transparent 27%),
+            linear-gradient(145deg, #FFF9F7 0%, #F5F1FC 44%, #EEF8F5 100%) !important;
+    }
+
+    ::selection {
+        background: #CEC5EC;
+        color: #3F3F54;
+    }
+
+    /* 상단 히어로는 눈에 띄되 쨍하지 않게 */
+    .app-hero {
+        background:
+            radial-gradient(circle at 80% 18%, rgba(255,255,255,0.52), transparent 24%),
+            linear-gradient(
+                120deg,
+                #F2CDDC 0%,
+                #DCD7F5 34%,
+                #CFE4F3 67%,
+                #D1EBDD 100%
+            ) !important;
+        border-color: rgba(255,255,255,0.78) !important;
+        box-shadow:
+            0 20px 48px rgba(106, 94, 147, 0.16),
+            0 3px 14px rgba(123, 151, 181, 0.09),
+            inset 0 1px 0 rgba(255,255,255,0.62) !important;
+    }
+
+    .app-hero-badge {
+        background: rgba(255,255,255,0.62) !important;
+        border-color: rgba(255,255,255,0.78) !important;
+        color: #625B7B !important;
+    }
+
+    .app-hero-title {
+        color: #414156 !important;
+    }
+
+    .app-hero-subtitle {
+        color: #606176 !important;
+    }
+
+    .section-kicker {
+        color: #8174B5 !important;
+    }
+
+    .section-title,
+    .results-heading-title {
+        color: #434359 !important;
+    }
+
+    .section-description,
+    .results-heading-subtitle {
+        color: #6E6F83 !important;
+    }
+
+    /* 큰 카드: 흰색은 유지하되 파스텔 테두리 존재감 강화 */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background:
+            linear-gradient(145deg, rgba(255,255,255,0.88), rgba(252,247,249,0.80)) !important;
+        border-color: rgba(255,255,255,0.86) !important;
+        outline-color: rgba(170, 160, 205, 0.26) !important;
+        box-shadow:
+            0 15px 36px rgba(99, 91, 127, 0.10),
+            0 4px 12px rgba(118, 145, 158, 0.055),
+            inset 0 1px 0 rgba(255,255,255,0.88) !important;
+    }
+
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.section-title) {
+        background:
+            radial-gradient(circle at 96% 8%, rgba(216,208,243,0.55), transparent 29%),
+            radial-gradient(circle at 4% 96%, rgba(203,231,218,0.48), transparent 27%),
+            linear-gradient(145deg, rgba(255,248,245,0.94), rgba(247,244,253,0.90)) !important;
+    }
+
+    /* 입력창도 살짝 더 보랏빛 */
+    div[data-testid="stTextInput"] div[data-baseweb="input"],
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    div[data-testid="stSelectbox"] [role="combobox"] {
+        background: rgba(255,255,255,0.88) !important;
+        border-color: rgba(163, 153, 201, 0.46) !important;
+        box-shadow:
+            0 5px 14px rgba(93,85,123,0.065),
+            inset 0 1px 0 rgba(255,255,255,0.84) !important;
+    }
+
+    div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+    div[data-testid="stSelectbox"] div[role="combobox"]:focus-within {
+        border-color: #A99DDA !important;
+        box-shadow: 0 0 0 0.19rem rgba(156,143,211,0.20) !important;
+    }
+
+    div[data-testid="stPopover"] button,
+    button[data-testid="stBaseButton-secondary"],
+    button[kind="secondary"],
+    div[data-testid="stLinkButton"] a {
+        background: linear-gradient(135deg, #EEE8FA 0%, #E6F3EE 100%) !important;
+        border-color: rgba(161,150,199,0.42) !important;
+        color: #57536C !important;
+        box-shadow: 0 5px 14px rgba(91,83,120,0.065) !important;
+    }
+
+    div[data-testid="stPopover"] button:hover,
+    button[data-testid="stBaseButton-secondary"]:hover,
+    button[kind="secondary"]:hover,
+    div[data-testid="stLinkButton"] a:hover {
+        background: linear-gradient(135deg, #E5DCF6 0%, #DCEFE7 100%) !important;
+        border-color: rgba(145,132,190,0.58) !important;
+    }
+
+    /* 메인 버튼은 기존보다 한 톤 진한 파스텔 */
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(
+            110deg,
+            #A99DDB 0%,
+            #9EADE0 30%,
+            #91C2D2 62%,
+            #96CDB5 100%
+        ) !important;
+        box-shadow:
+            0 12px 26px rgba(105, 95, 153, 0.20),
+            inset 0 1px 0 rgba(255,255,255,0.38) !important;
+    }
+
+    .filter-chip {
+        background: linear-gradient(135deg, #ECE4F8 0%, #E1F1EB 100%) !important;
+        border-color: rgba(160,149,199,0.45) !important;
+        color: #56536D !important;
+    }
+
+    /* 결과 카드도 배경에 아주 약한 보라 기운 */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.result-header) {
+        background:
+            radial-gradient(circle at 94% 6%, rgba(216,208,243,0.42), transparent 26%),
+            linear-gradient(145deg, rgba(255,255,255,0.92), rgba(252,245,247,0.84)) !important;
+    }
+
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.winner-rank) {
+        background:
+            radial-gradient(circle at 90% 4%, rgba(255,255,255,0.68), transparent 22%),
+            radial-gradient(circle at 5% 100%, rgba(244,209,185,0.44), transparent 28%),
+            linear-gradient(135deg, rgba(242,205,220,0.94), rgba(220,215,245,0.92) 48%, rgba(209,235,221,0.92)) !important;
+        outline-color: rgba(153,140,198,0.35) !important;
+        box-shadow:
+            0 21px 46px rgba(98,87,143,0.17),
+            0 5px 14px rgba(118,145,158,0.07),
+            inset 0 1px 0 rgba(255,255,255,0.82) !important;
+    }
+
+    .result-rank {
+        background: linear-gradient(135deg, #E9E2F7 0%, #E1F0EA 100%) !important;
+        border-color: rgba(157,145,198,0.48) !important;
+        color: #5C5874 !important;
+    }
+
+    .winner-rank {
+        background: linear-gradient(120deg, #E8BACD 0%, #C9C3ED 48%, #BDE0D0 100%) !important;
+        border-color: rgba(255,255,255,0.60) !important;
+        color: #514D67 !important;
+        box-shadow: 0 7px 18px rgba(93,83,137,0.13) !important;
+    }
+
+    .restaurant-name {
+        color: #424257 !important;
+    }
+
+    .score-badge {
+        background: linear-gradient(145deg, #EDE5F9 0%, #E2F1EB 100%) !important;
+        border-color: rgba(158,145,199,0.42) !important;
+        box-shadow:
+            0 7px 18px rgba(91,82,127,0.085),
+            inset 0 1px 0 rgba(255,255,255,0.72) !important;
+    }
+
+    .score-number {
+        color: #695DAA !important;
+    }
+
+    .score-label {
+        color: #77738E !important;
+    }
+
+    /* V78: 이어지는 색 흐름은 유지하되 칸과 칸 사이의 연결부는 끊어서 더 또렷하게 */
+    .meta-grid {
+        background: transparent !important;
+        padding: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        overflow: visible;
+    }
+
+    .meta-item {
+        border: 1px solid rgba(255,255,255,0.54) !important;
+        box-shadow:
+            inset 0 1px 0 rgba(255,255,255,0.54),
+            0 4px 11px rgba(82,78,112,0.05) !important;
+        backdrop-filter: blur(5px) saturate(112%);
+        -webkit-backdrop-filter: blur(5px) saturate(112%);
+        transition: filter 0.18s ease, transform 0.18s ease;
+    }
+
+    .meta-grid .meta-item:nth-child(1) {
+        background: linear-gradient(135deg, rgba(220,207,243,0.96) 0%, rgba(214,205,241,0.94) 100%) !important;
+    }
+
+    .meta-grid .meta-item:nth-child(2) {
+        background: linear-gradient(135deg, rgba(216,216,244,0.96) 0%, rgba(208,219,243,0.94) 100%) !important;
+    }
+
+    .meta-grid .meta-item:nth-child(3) {
+        background: linear-gradient(135deg, rgba(207,223,243,0.96) 0%, rgba(203,231,235,0.94) 100%) !important;
+    }
+
+    .meta-grid .meta-item:nth-child(4) {
+        background: linear-gradient(135deg, rgba(203,231,235,0.96) 0%, rgba(205,232,216,0.94) 100%) !important;
+    }
+
+    .meta-item:hover {
+        filter: brightness(1.02);
+        transform: translateY(-1px);
+    }
+
+    .meta-label {
+        color: #736C91 !important;
+    }
+
+    .meta-value {
+        color: #444459 !important;
+    }
+
+    .address-line {
+        color: #6C6B7F !important;
+    }
+
+    div[data-testid="stExpander"] {
+        background: rgba(249,246,253,0.72) !important;
+        border-color: rgba(161,149,201,0.36) !important;
+    }
+
+    .detail-summary {
+        background: linear-gradient(135deg, #EEE6F8 0%, #E3F2EC 52%, #FAE9DE 100%) !important;
+        border-color: rgba(159,147,199,0.36) !important;
+        color: #56556B !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        background: linear-gradient(135deg, #E9E1F7 0%, #E0F0EA 100%) !important;
+        border-color: rgba(158,146,199,0.34) !important;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: rgba(255,255,255,0.86) !important;
+        color: #63589E !important;
+        box-shadow: 0 4px 12px rgba(91,82,127,0.09) !important;
+    }
+
+    div[data-testid="stAlert"] {
+        background: linear-gradient(135deg, #EEE7F8 0%, #E3F2EC 100%) !important;
+        border-color: rgba(159,147,199,0.34) !important;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -7756,6 +8602,11 @@ if search_button:
         checked_place_ids = set()
         restaurant_results = []
 
+        # V71: Google 리뷰 API를 끝내 불러오지 못한 식당은
+        # '리뷰 정보 없음 = 중립'으로 계산하지 않고 추천 순위에서 제외한다.
+        # 사용자에게는 검색이 끝난 뒤 제외된 식당 수만 안내한다.
+        review_api_error_places = set()
+
         def fetch_text_search_restaurants(
             query,
             search_radius
@@ -7814,12 +8665,17 @@ if search_button:
 
         def get_reviews_for_place(place):
             """
-            Google Places 리뷰를 최대 1회만 요청하고 결과를 캐시한다.
+            Google Places 리뷰를 요청하고 결과를 캐시한다.
 
             place["_reviews_fetch_status"] 값:
             - "ok": 리뷰를 정상적으로 가져옴
             - "no_reviews": 요청은 성공했지만 리뷰가 없음
             - "api_error": 네트워크/API 오류
+
+            V71:
+            - 일시적인 네트워크 오류, 429, 5xx는 최대 2회 요청한다.
+            - 끝까지 실패하면 api_error로 표시한다.
+            - api_error는 이후 추천점수에서 '중립 리뷰'로 계산하지 않는다.
             """
             cached_reviews = place.get("_cached_reviews")
 
@@ -7840,10 +8696,18 @@ if search_button:
                 return preloaded
 
             place_id = place.get("id")
+            place_key = (
+                place_id
+                or place.get("displayName", {}).get("text")
+                or place.get("name")
+                or "unknown"
+            )
 
             if not place_id:
                 place["_reviews_fetch_status"] = "api_error"
+                place["_reviews_fetch_error"] = "missing_place_id"
                 place["_cached_reviews"] = []
+                review_api_error_places.add(str(place_key))
                 return []
 
             details_url = (
@@ -7859,35 +8723,83 @@ if search_button:
                 "languageCode": "ko"
             }
 
-            try:
-                details_response = requests.get(
-                    details_url,
-                    headers=details_headers,
-                    params=details_params,
-                    timeout=8
-                )
+            max_attempts = 2
+            retryable_status_codes = {
+                429,
+                500,
+                502,
+                503,
+                504,
+            }
+            last_error = "unknown"
 
-                if details_response.status_code == 200:
-                    reviews = details_response.json().get(
-                        "reviews",
-                        []
+            for attempt in range(max_attempts):
+                try:
+                    details_response = requests.get(
+                        details_url,
+                        headers=details_headers,
+                        params=details_params,
+                        timeout=8
                     )
-                    place["_cached_reviews"] = reviews
-                    place["_reviews_fetch_status"] = (
-                        "ok" if reviews else "no_reviews"
+
+                    if details_response.status_code == 200:
+                        reviews = details_response.json().get(
+                            "reviews",
+                            []
+                        )
+                        place["_cached_reviews"] = reviews
+                        place["_reviews_fetch_status"] = (
+                            "ok" if reviews else "no_reviews"
+                        )
+                        place.pop("_reviews_fetch_error", None)
+                        review_api_error_places.discard(str(place_key))
+                        return reviews
+
+                    last_error = (
+                        f"http_{details_response.status_code}"
                     )
-                    return reviews
 
-                place["_reviews_fetch_status"] = "api_error"
+                    should_retry = (
+                        details_response.status_code
+                        in retryable_status_codes
+                        and attempt < max_attempts - 1
+                    )
 
-            except (requests.RequestException, ValueError):
-                place["_reviews_fetch_status"] = "api_error"
+                    if should_retry:
+                        time.sleep(0.6 * (attempt + 1))
+                        continue
 
+                    break
+
+                except requests.RequestException as exc:
+                    last_error = exc.__class__.__name__
+
+                    if attempt < max_attempts - 1:
+                        time.sleep(0.6 * (attempt + 1))
+                        continue
+
+                except ValueError:
+                    # 200 응답이어도 JSON 파싱이 깨진 경우 일시 오류로 취급한다.
+                    last_error = "invalid_json"
+
+                    if attempt < max_attempts - 1:
+                        time.sleep(0.6 * (attempt + 1))
+                        continue
+
+            place["_reviews_fetch_status"] = "api_error"
+            place["_reviews_fetch_error"] = last_error
             place["_cached_reviews"] = []
+            review_api_error_places.add(str(place_key))
             return []
 
 
         def make_review_result(restaurant, reviews):
+            # V71~V72 유지: API 실패는 '리뷰가 없는 식당'과 다르다.
+            # 실패한 빈 리스트를 중립(리뷰 30/60점)으로 계산하지 않고
+            # 이번 추천 순위에서는 제외한다.
+            if restaurant.get("_reviews_fetch_status") == "api_error":
+                return None
+
             (
                 review_summary,
                 food_related_review_count
@@ -7913,7 +8825,11 @@ if search_button:
 
             score_breakdown = get_recommendation_score_breakdown(
                 restaurant.get("rating"),
-                category_scores
+                category_scores,
+                google_review_count=restaurant.get(
+                    "userRatingCount",
+                    0
+                ),
             )
 
             # 실제 Google 평점이 없는 식당은 계속 제외
@@ -7953,9 +8869,10 @@ if search_button:
         # - Google 평점 65
         # - 전체 평가 수 신뢰도 35
         #
-        # 리뷰 분석은 반경별 상위 20곳까지 확인해
-        # 기존 10곳 선절단으로 생기던 누락을 줄인다.
-        REVIEW_ANALYSIS_LIMIT_PER_RADIUS = 20
+        # 리뷰 분석은 반경별 상위 30곳까지 확인해
+        # 후보 선절단으로 생기던 누락을 더 줄인다.
+        # API 호출량과 탐색 폭 사이의 균형을 위해 30곳으로 제한한다.
+        REVIEW_ANALYSIS_LIMIT_PER_RADIUS = 30
 
         def candidate_rating_score(rating):
             if rating is None:
@@ -8385,7 +9302,7 @@ if search_button:
                 reverse=True
             )
 
-            # 리뷰 분석 후보를 10개에서 20개로 넓힌다.
+            # 리뷰 분석 후보를 반경별 최대 30개까지 확인한다.
             # 최종 출력은 여전히 추천 점수 상위 10개다.
             review_candidates = new_restaurants[
                 :REVIEW_ANALYSIS_LIMIT_PER_RADIUS
@@ -8732,14 +9649,30 @@ if search_button:
                 )
 
 
+        # V71~V72 유지: API 오류로 리뷰를 확인하지 못한 식당은
+        # 중립 점수를 임의로 주지 않고 이번 순위에서 제외했다는 사실만 안내한다.
+        if review_api_error_places:
+            st.warning(
+                f"Google 리뷰를 불러오지 못한 식당 "
+                f"{len(review_api_error_places)}곳은 이번 추천 순위에서 제외했어요. "
+                "일시적인 API 오류였다면 잠시 후 다시 검색하면 포함될 수 있어요."
+            )
+
         # ======================================
         # 4. 최종 추천점수 정렬 → TOP 10 확정
         # ======================================
 
         restaurant_results.sort(
-            key=lambda x: x.get(
-                "recommendation_score",
-                0
+            key=lambda x: (
+                x.get("recommendation_score", 0),
+                x.get("restaurant", {}).get(
+                    "userRatingCount",
+                    0
+                ) or 0,
+                x.get("restaurant", {}).get(
+                    "rating",
+                    0
+                ) or 0,
             ),
             reverse=True
         )
@@ -8758,7 +9691,7 @@ if search_button:
 
 
         # ======================================
-        # 5. 출력 - V69 반응형 카드 UI
+        # 5. 출력 - V73 소프트 파스텔 카드 UI
         # ======================================
 
         result_context = (
@@ -8880,7 +9813,7 @@ if search_button:
                 if i == 1:
                     rank_html = (
                         '<span class="result-rank winner-rank">'
-                        '🥇 BEST MATCH'
+                        '🥇 TOP PICK'
                         '</span>'
                     )
                     name_class = "restaurant-name winner-name"
