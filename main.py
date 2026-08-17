@@ -8227,6 +8227,301 @@ st.markdown(
         border-color: rgba(159,147,199,0.34) !important;
     }
 
+
+
+    /* =========================================================
+       V83 — FINAL TYPOGRAPHY / SPACING POLISH
+       색상과 기능은 유지하고 타이포그래피와 여백만 정돈
+       ========================================================= */
+
+    html,
+    body,
+    [data-testid="stAppViewContainer"],
+    .stApp {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+    }
+
+    /* HERO */
+    .app-hero-badge {
+        font-size: 0.75rem !important;
+        font-weight: 820 !important;
+        letter-spacing: 0.085em !important;
+        line-height: 1 !important;
+        padding: 0.36rem 0.72rem !important;
+        margin-bottom: 0.76rem !important;
+    }
+
+    .app-hero-title {
+        letter-spacing: -0.045em !important;
+        line-height: 1.06 !important;
+    }
+
+    .app-hero-subtitle {
+        line-height: 1.68 !important;
+        letter-spacing: -0.008em !important;
+        margin-top: 0.78rem !important;
+        max-width: 46rem;
+    }
+
+    /* SECTION HEADINGS */
+    .section-kicker {
+        letter-spacing: 0.095em !important;
+        line-height: 1.2 !important;
+        margin-bottom: 0.24rem !important;
+    }
+
+    .section-title,
+    .results-heading-title {
+        letter-spacing: -0.032em !important;
+        line-height: 1.22 !important;
+    }
+
+    .section-description,
+    .results-heading-subtitle {
+        line-height: 1.58 !important;
+        letter-spacing: -0.006em !important;
+    }
+
+    .results-heading {
+        margin-top: 1.82rem !important;
+        margin-bottom: 0.78rem !important;
+    }
+
+    /* RESULT HEADER */
+    .result-header {
+        gap: 1.15rem !important;
+    }
+
+    .result-rank {
+        font-weight: 830 !important;
+        letter-spacing: 0.018em !important;
+        padding: 0.32rem 0.68rem !important;
+        margin-bottom: 0.34rem !important;
+    }
+
+    .winner-rank {
+        letter-spacing: 0.055em !important;
+        padding-left: 0.72rem !important;
+        padding-right: 0.72rem !important;
+    }
+
+    .restaurant-name {
+        letter-spacing: -0.035em !important;
+        line-height: 1.24 !important;
+        margin-top: 0.10rem !important;
+    }
+
+    .winner-name {
+        letter-spacing: -0.04em !important;
+        line-height: 1.20 !important;
+    }
+
+    /* SCORE */
+    .score-badge {
+        min-width: 98px !important;
+        padding: 0.42rem 0 !important;
+    }
+
+    .score-number {
+        letter-spacing: -0.052em !important;
+        line-height: 0.96 !important;
+    }
+
+    .score-label {
+        font-weight: 720 !important;
+        letter-spacing: 0.012em !important;
+        line-height: 1.2 !important;
+        margin-top: 0.29rem !important;
+    }
+
+    /* META CARDS */
+    .meta-grid {
+        gap: 0.56rem !important;
+        margin-top: 0.82rem !important;
+    }
+
+    .meta-item {
+        padding: 0.69rem 0.76rem !important;
+    }
+
+    .meta-label {
+        font-weight: 790 !important;
+        letter-spacing: 0.028em !important;
+        line-height: 1.2 !important;
+        margin-bottom: 0.22rem !important;
+    }
+
+    .meta-value {
+        font-weight: 820 !important;
+        letter-spacing: -0.014em !important;
+        line-height: 1.28 !important;
+    }
+
+    .address-line {
+        margin-top: 0.72rem !important;
+        line-height: 1.56 !important;
+        letter-spacing: -0.007em !important;
+    }
+
+    /* DETAIL / REVIEW */
+    .detail-summary {
+        line-height: 1.70 !important;
+        letter-spacing: -0.006em !important;
+        padding: 0.80rem 0.92rem !important;
+    }
+
+    .review-card-heading {
+        margin-bottom: 0.22rem !important;
+    }
+
+    .review-card-title {
+        letter-spacing: -0.014em !important;
+        line-height: 1.35 !important;
+    }
+
+    .review-card-status {
+        letter-spacing: -0.005em !important;
+        line-height: 1.35 !important;
+    }
+
+    /* CONTROLS */
+    div.stButton > button,
+    div[data-testid="stPopover"] > button,
+    div[data-testid="stLinkButton"] a {
+        letter-spacing: -0.006em !important;
+    }
+
+    div.stButton > button[kind="primary"] {
+        font-weight: 820 !important;
+    }
+
+    .filter-chip {
+        line-height: 1.25 !important;
+        letter-spacing: -0.006em !important;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        font-weight: 760 !important;
+        letter-spacing: -0.008em !important;
+    }
+
+    div[data-testid="stExpander"] summary {
+        font-weight: 760 !important;
+        letter-spacing: -0.008em !important;
+    }
+
+    /* 마지막 결과 카드가 화면 끝에 너무 붙지 않도록 */
+    .block-container {
+        padding-bottom: 3rem !important;
+    }
+
+    @media (max-width: 700px) {
+        .block-container {
+            padding-bottom: 2.2rem !important;
+        }
+
+        .app-hero-badge {
+            font-size: 0.66rem !important;
+            letter-spacing: 0.075em !important;
+            padding: 0.30rem 0.56rem !important;
+            margin-bottom: 0.58rem !important;
+        }
+
+        .app-hero-title {
+            letter-spacing: -0.042em !important;
+            line-height: 1.08 !important;
+        }
+
+        .app-hero-subtitle {
+            line-height: 1.60 !important;
+            margin-top: 0.60rem !important;
+        }
+
+        .section-kicker {
+            letter-spacing: 0.082em !important;
+        }
+
+        .section-title,
+        .results-heading-title {
+            letter-spacing: -0.027em !important;
+            line-height: 1.24 !important;
+        }
+
+        .results-heading {
+            margin-top: 1.34rem !important;
+            margin-bottom: 0.62rem !important;
+        }
+
+        .result-header {
+            gap: 0.38rem !important;
+        }
+
+        .result-rank {
+            letter-spacing: 0.012em !important;
+            padding: 0.28rem 0.58rem !important;
+            margin-bottom: 0.26rem !important;
+        }
+
+        .winner-rank {
+            letter-spacing: 0.045em !important;
+        }
+
+        .restaurant-name,
+        .winner-name {
+            letter-spacing: -0.032em !important;
+            line-height: 1.27 !important;
+        }
+
+        .score-badge {
+            min-width: 0 !important;
+            gap: 0.38rem !important;
+            padding: 0.08rem 0 0.10rem !important;
+        }
+
+        .score-number {
+            letter-spacing: -0.045em !important;
+        }
+
+        .score-label {
+            letter-spacing: 0.008em !important;
+        }
+
+        .meta-grid {
+            gap: 0.44rem !important;
+            margin-top: 0.62rem !important;
+        }
+
+        .meta-item {
+            padding: 0.58rem 0.62rem !important;
+        }
+
+        .meta-label {
+            letter-spacing: 0.024em !important;
+            margin-bottom: 0.19rem !important;
+        }
+
+        .meta-value {
+            letter-spacing: -0.010em !important;
+            line-height: 1.30 !important;
+        }
+
+        .address-line {
+            margin-top: 0.58rem !important;
+            line-height: 1.55 !important;
+        }
+
+        .detail-summary {
+            line-height: 1.62 !important;
+            padding: 0.66rem 0.72rem !important;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            letter-spacing: -0.012em !important;
+        }
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
