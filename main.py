@@ -7968,7 +7968,7 @@ st.markdown(
         .score-badge {
             min-width: 0 !important;
             gap: 0.38rem !important;
-            padding: 0.08rem 0 0.10rem !important;
+            padding: 0.44rem 0.72rem !important;
         }
 
         .score-number {
